@@ -1,0 +1,46 @@
+Bitcoin Tax Calculator v 0.5
+
+Copyright 2012 Rareventure, LLC
+
+This program calculates gain/loss information from mtgox.com csv files in a way that should help you report it to the IRS. It's very old and was originally used for stocks, and then mushed into a form usable for bitcoin. It may contain bugs...
+
+General usage:
+
+1. Download the csv version of mtgox history for USD transactions. From the main mtgox.com screen, go to "Account History", then "Transactions", then select the small "USD" link. Click on the small "CSV" buttons in the upper right of the table and download both "last 3 months" and "All history (older than 3 months)" versions. The file names should both be "history_USD.csv". Note that the files will partially overlap. This is ok, because this program will recognize and eliminate duplicate lines.
+
+2. Run:
+
+perl bitcoin_mtgox_balance_calculator.pl <files..> > wash_in.csv
+
+where <files..> are the "history_USD.csv" files you downloaded in step 1. 
+
+This will produce wash_in.csv, which is a csv file that colaesces all intraday transactions into daily ones. ie. if you had 6 buys on 5/31/12, then they would appear as one buy in this output sheet. Examine it for for bugs, etc. 
+
+3. Run:
+
+perl wash.pl wash_in.csv
+
+This will spit out the individual transactions as lines containing full transactions with both a buy and sell date. It will also attempt to calculate wash transactions. 
+
+The output format is in two sections. The first section shows each buy and each sell separately, and how they were joined together by date. It also spits out "BTC: ??? USD: ???" to show the balance of each in regard to the transactions.
+
+The second section shows a format similar to Schedule D, Form 8949 and is mainly used for easy entry into the IRS forms.
+
+
+The program works by matching buys to sells, so that all sells have lots of bitcoins from previous buys. It may split a buy in half if it was sold on two different days, as well as split a sell in half if it allocated two buys on two separate days for it. (ex. if you buy 25 BTC on 6/1 and 30 BTC on 6/2 and sell 55 BTC on 6/6, the program spits out two sells on 6/6, one for 25 BTC and 1 for 30 BTC with the appropriately derived buy, sell information). It calculates wash sales as follows:
+
+1. Find each sell in chronological order
+For each sell,
+2. Find first buy which has not been allocated as a "first buy" for any sell. This buy becomes "First Buy" for this sell
+   Continue this process until all shares of the sells have a "first buy". The first buy allocated for the final
+   shares in the sell may have to be split into two buys. (A first buy simply means a normal buy for a sell, that is,
+   not a buy that made a sell become a wash sale)
+3. Find first buy which is not a wash for any sell and is not the "first buy" for *this* sell and has been traded within
+   the 61 day gap. Mark this as a wash buy, and count the shares as wash shares for the sell. Continue until all shares
+   are marked wash or run out of buys. May have to split buys, or sell as part wash/part non-wash.
+End for each 
+
+----
+
+Hope it helps! Tim Engler, engler@gmail.com
+
