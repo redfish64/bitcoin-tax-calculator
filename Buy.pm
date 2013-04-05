@@ -30,9 +30,9 @@ use Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $charge, $symbol, $sharePrice) = @_;
+    my ($class, $date, $shares, $price, $symbol) = @_;
     
-    $self = Trade::new($class, $date, $shares, $price, $charge, $symbol, $sharePrice);
+    $self = Trade::new($class, $date, $shares, $price, $symbol);
     $self->{'gets_basis'} = 0;
 
     $self;
@@ -43,54 +43,60 @@ sub type
     "buy";
 }
 
-sub _split
+sub split
 {
-    my ($self, $trades, $sharesAllocated) = @_;
+    #sellCause may be undef, which means this call is not being recursive
+    my ($self, $trades, $newShares, $sellCause, $splitSell) = @_;
+
+    if(!(defined $sellCause))
+    {
+	if($self->{'sell'})
+	{
+	    $self->{'sell'}->split($trades,$newShares,$self);
+	    return;
+	}
+    }
+
+    my $otherShares = $self->{'shares'} - $newShares;
+    my $newPrice = $self->{'price'} * $newShares / $self->{'shares'};
+    my $otherPrice = $self->{'price'} * $otherShares / $self->{'shares'};
 
     #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
-    my $splitBuy = new Buy($self->{'date'}, $self->{'shares'} - $sharesAllocated, 
-			   ($self->{'shares'} - $sharesAllocated) * $self->{'sharePrice'}, 0, 
-			   $self->{'symbol'}, $self->{'sharePrice'});
-    
-    $self->{'shares'} = $sharesAllocated;
-    $self->{'price'} = $self->{'shares'} * $self->{'sharePrice'};
+    my $splitBuy = new Buy($self->{'date'}, $otherShares, $otherPrice,
+			   $self->{'symbol'});
 
-    #the split buy inherits the block of firstBuys as well.
-    $splitBuy->{'block'} = $self->{'block'};
-    
-    #and the washes
-    $splitBuy->{'wash'} = $self->{'wash'};
-    
+    #if there is a splitSell, we use it
+    $splitBuy->{'sell'} = $splitSell;
+
+    $self->{'shares'} = $newShares;
+    $self->{'price'} = $newPrice;
+
     #insert the new buy right after us
     $trades->insertAfter($splitBuy, $self);
+
+    #now split the washSell recursively, naming us and our newly defined split cousin as the cause
+    if($self->{'washSell'} && $cause != $self->{'washSell'})
+    {
+	$self->{'washSell'}->split($trades, $newShares, $self, $splitBuy);
+    }
 
     return $splitBuy;
 }
 
-#allocates the shares to the given sell as "first buy". If there are still some shares left, buy must split itself into two
+#allocates the shares to the given sell as its buy. If there are still some shares left, buy must split itself into two
 #purchases, one allocated and one not
-sub markFirstBuy
+sub markBuyForSell
 {
-    my ($self, $trades, $sell) = @_;
-
-    my $splitBuy;
-
-    $sharesAllocated = $sell->allocateShares($self->{'shares'}, $self);
+    my ($self, $sell) = @_;
 
     #if we weren't able to mark all the shares of the sell
-    if($sharesAllocated < $self->{'shares'})
+    if($sell->{'shares'} != $self->{'shares'})
     {
-	$splitBuy = $self->_split($trades, $sharesAllocated);
+	die "cannot mark buy for sell if number of shares differ"
     }
 
-    #mark ourselves as a firstbuy
-    $self->{'firstBuy'} = $sell;
-
-    #mark whole block to have sell as a firstBuy
-    $self->{'block'}->{$sell} = $sell;
-
-    #return the split-off buy, if any
-    return $splitBuy;
+    $self->{'sell'} = $sell;
+    $sell->{'buy'} = $self;
 }
 
 #returns cost and any backup from wash sales
@@ -98,14 +104,15 @@ sub getBasis
 {
     my ($self) = @_;
 
-    my $basis = $self->{'price'} + $self->{'charge'};
-    my $wash = $self->{'wash'};
+    my $basis = $self->{'price'};
+    my $washSale = $self->{'washSell'};
     
     #if this is a wash buy
-    if(defined $wash && $self->{'gets_basis'})
+    if(defined $washSale)
     {
 	#add the loss from the wash sale
-	$basis -= $wash->getGain();
+	#HACK!
+	#$basis -= $washSale->getGain();
     }
 
     return $basis;
@@ -115,42 +122,38 @@ sub markAsWash
 {
     my ($self, $trades, $sell) = @_;
 
-    ($sharesAllocated, $gets_basis) = $sell->allocateWashShares($self->{'shares'});
-
-    $self->{'gets_basis'} = $gets_basis;
-
-    #if we weren't able to mark all the shares of the sell
-    if($sharesAllocated < $self->{'shares'})
+    if($self->{'shares'} != $sell->{'shares'})
     {
-	$self->_split($trades, $sharesAllocated);
+	die "Buy must have same number of shares as sell";
     }
 
     #mark ourselves as a wash
-    $self->{'wash'} = $sell;
+    $self->{'washSell'} = $sell;
+    $sell->{'washBuy'} = $self;
 }
 
 sub isWash
 {
     my ($self) = @_;
 
-    return 1 if defined $self->{'wash'};
+    return 1 if defined $self->{'washSell'};
     return 0;
 }
 
-sub isFirstBuy
+sub isBuy
 {
     my ($self, $sell) = @_;
-    return 1 if defined $self->{'firstBuy'} && $sell == $self->{'firstBuy'} || $self->{'block'}->{$sell};
+    return 1 if $sell == $self->{'sell'};
     return 0;
 }
 
-sub printWash
+sub toWashString
 {
     my ($self) = @_;
 
     if($self->isWash)
     {
-	return &main::convertDaysToText($self->{'wash'}->{'date'})."\t".$self->{'wash'}->{'shares'};
+	return &main::convertDaysToText($self->{'washSell'}->{'date'})."\t".$self->{'washSell'}->{'shares'};
     }
 
     return "";

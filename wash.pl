@@ -108,7 +108,7 @@ while($line = <>)
     if($line =~ /^(.*),(.*),(.*),(.*),(.*)$/)
     {
 	#read next line
-	($date_text, $shares, $price, $fee, $sharePrice) = ($1, $2, $3, $4, $5, $6);
+	($date_text, $shares, $price, $fee) = ($1, $2, $3, $4);
 
 	if($shares > 0)
 	{
@@ -134,13 +134,13 @@ while($line = <>)
 	if($action eq "S")
 	{
 	    #create a sell trade
-	    $trades->add(new Sell(&main::convertTextToDays($date_text), $shares, $price, $fee, $symbol, $sharePrice));
+	    $trades->add(new Sell(&main::convertTextToDays($date_text), $shares, $price-$fee,$symbol));
 	}
 	#else if we're buying
 	elsif ($action eq "B")
 	{
 	    #buy the stock
-	    $trades->add(new Buy(&main::convertTextToDays($date_text), $shares, $price, $fee, $symbol, $sharePrice));
+	    $trades->add(new Buy(&main::convertTextToDays($date_text), $shares, $price+ $fee, $symbol));
 	}
 	else
 	{
@@ -153,7 +153,7 @@ while($line = <>)
     }
 }
 
-$trades->checkWashes;
+$trades->checkWashesAndAssignBuysToSells;
 $trades->print;
 print "------------------------------------\n";
 $trades->printIRS;

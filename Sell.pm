@@ -31,9 +31,9 @@ use Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $charge, $symbol, $sharePrice) = @_;
+    my ($class, $date, $shares, $price, $symbol) = @_;
     
-    $self = Trade::new($class, $date, $shares, $price, $charge, $symbol, $sharePrice);
+    $self = Trade::new($class, $date, $shares, $price, $symbol);
 
     $self->init();
 
@@ -43,10 +43,7 @@ sub new
 #initializes a sell
 sub init
 {
-    $self->{'allocatedShares'} = 0;
-    $self->{'washedShares'} = 0;
-    $self->{'processed'} = 0;
-    $self->{'buys'} = []; #buys for this sell
+    $self->{'buy'} = undef; #buy for this sell
 }
 
 sub type
@@ -54,199 +51,48 @@ sub type
     "sell";
 }
 
-#returns unallocated shares up to $shares. These shares become allocated
-sub allocateShares
+#we call this recursively for related buys and wash sales.
+# we alwys go in the order $sell->$buy->$washSell->$washSellBuy...
+sub split
 {
-    my ($self, $shares, $buy) = @_;
+    my ($self, $trades, $newShares, $washBuyCause, $washBuySplit) = @_;
 
-    my $unallocatedShares = $self->{'shares'} - $self->{'allocatedShares'};
+    my $otherShares = $self->{'shares'} - $newShares;
+    my $newPrice = $self->{'price'} * $newShares / $self->{'shares'};
+    my $otherPrice = $self->{'price'} * $otherShares / $self->{'shares'};
 
-    if($unallocatedShares > $shares)
-    {
-	$unallocatedShares = $shares;
-    }
+    #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
+    my $splitSell = new Sell($self->{'date'}, $otherShares, $otherPrice,
+			   $self->{'symbol'});
 
-    $self->{'allocatedShares'} += $unallocatedShares;
+    $splitSell->{'washBuy'} = $washBuySplit;
 
-    #mark the buy as one of the buys to allocate shares for this sell
-    push @{$self->{'buys'}}, $buy;
+    $self->{'shares'} = $newShares;
+    $self->{'price'} = $newPrice;
 
-    return $unallocatedShares;
-}
-
-
-#returns unallocated wash shares up to $shares. These shares become allocated for wash
-sub allocateWashShares
-{
-    my ($self, $shares) = @_;
-
-    my $unallocatedShares = $self->{'shares'} - $self->{'washedShares'};
-
-    if($unallocatedShares > $shares)
-    {
-	$unallocatedShares = $shares;
-    }
-
-    $self->{'washedShares'} += $unallocatedShares;
-
-    #whether the buy gets the basis or not
-    return ($unallocatedShares, $self->{'washedShares'} == $unallocatedShares);
-}
-
-
-#returns true if all the shares were allocated
-sub allSharesAllocated
-{
-    my ($self) = @_;
-
-    if($self->{'allocatedShares'} == $self->{'shares'}) 
-    {
-	return 1;
-    }
-
-    return 0;
-}
-
-
-
-#returns true if all the shares were washed
-sub allSharesWashed
-{
-    my ($self) = @_;
-
-    if($self->{'washedShares'} == $self->{'shares'}) 
-    {
-	return 1;
-    }
-
-    return 0;
-}
-
-
-#splits sell into washed and non washed
-sub splitWashed
-{
-    my ($self, $trades) = @_;
-
-    if($self->{'washedShares'} < $self->{'shares'} && $self->{'washedShares'} != 0)
-    {
-	print "Warning: untested code - splitting a wash!\n";
-	
-	print $self->{'date'}." ".$self->{'symbol'}."\n";
-
-	$self->_split($self->{'washedShares'}, $trades);
-    }
-}
-
-
-sub _split
-{
-    my ($self, $shares, $trades) = @_;
-    
-    #create a new sell split off from this one. No charge for this sell, and give it the shares not allocated
-    my $splitSell = new Sell($self->{'date'}, $self->{'shares'} - $shares, 
-			     ($self->{'shares'} - $shares) * $self->{'sharePrice'}, 0, 
-			     $self->{'symbol'}, $self->{'sharePrice'});
-    
-    $self->{'shares'} = $shares;
-    $self->{'price'} = $self->{'shares'} * $self->{'sharePrice'};
-
-    #
-    # reallocate first buys for this sell and the split sell
-    #
-    $buys = $self->{'buys'};
-
-    $self->{'allocatedShares'} = 0;
-    $self->{'buys'} = []; #buys for this sell
-
-    my $allocateForSelf = 1;
-
-    foreach $buy (@$buys)
-    {
-	if($allocateForSelf)
-	{
-	    my $splitBuy = $buy->markFirstBuy($trades, $self);
-	    
-	    #if we've allocated all the shares to the first sell
-	    if(defined $splitBuy)
-	    {
-		$allocateForSelf = 0;
-
-		#add the split buy to the list to allocate for the other
-		push @$buys, $splitBuy;
-	    }
-	}
-	else
-	{
-	    my $splitBuy = $buy->markFirstBuy($trades, $splitSell);
-
-	    #if we've allocated all the shares to the first sell
-	    if(defined $splitBuy)
-	    {
-		die "Sanity check failed! Too many buys for sell and split sell";
-	    }
-	}
-    }
-    
-    #insert the new sell right after us
+    #insert the new buy right after us
     $trades->insertAfter($splitSell, $self);
+
+    #now split the buy for this sell recursively, naming us and our newly defined split cousin as the cause
+    if($self->{'buy'})
+    {
+	$splitSell->{'buy'} = $self->{'buy'}->split($trades, $newShares, $self, $splitSell);
+    }
+
+    return $splitBuy;
 }
 
-#returns  the gain or loss based on "First Buy"(s) and the buy date as a string
+
+
+
+#returns  the gain or loss based on the buy and the buy date
 sub getBuyPrice
 {
     my ($self) = @_;
-
-    my $buyPrice = 0;
-
-    my $buyDate = "";
-    my $buy;
-
-    foreach $buy (@{$self->{'buys'}})
-    {
-	my $buyBuyDate = &main::convertDaysToText($buy->{'date'});
-	if($buyDate ne "" && $buyDate ne $buyBuyDate)
-	{
-	    $buyDate = 'VARIOUS';
-	}
-	else
-	{
-	    $buyDate = $buyBuyDate;
-	}
-
-	$buyPrice += $buy->getBasis();
-    }
-
-    return ($buyPrice, $buyDate);
-}
-
-sub isWash
-{
-    my ($self) = @_;
     
-    return $self->{'washedShares'} != 0;
-}
+    my $buy = $self->{'buy'};
 
-sub isProcessed
-{
-    return shift->{'processed'};
-}
-
-sub markProcessed
-{
-    shift->{'processed'} = 1;
-}
-
-sub printWash
-{
-    my ($self) = @_;
-
-    if($self->isWash)
-    {
-	return "wash";
-    }
-
-    return "";
+    return ($buy->getBasis(), $buy->{'date'});
 }
 
 sub getGain
@@ -254,7 +100,7 @@ sub getGain
     my ($self) = @_;
 
     my ($buyPrice) = $self->getBuyPrice();
-    return $self->{'price'}-$self->{'charge'} - $buyPrice;
+    return $self->{'price'}- $buyPrice;
 }
 
 sub toString
@@ -274,55 +120,64 @@ sub toString
     return $s;
 }
 
-sub toIRSStringOld
+sub isWash
+{
+    my ($self) = @_;
+
+    $self->{'washBuy'};
+}
+
+    
+sub toWashString
 {
     my ($self) = @_;
     
-    my ($buyPrice, $buyDate) = $self->getBuyPrice();
+    my $s = "";
+    if($self->isWash)
+    {
+	$s = "wash";
+    }
 
-    $self->{'shares'}."\t".$self->{'symbol'}."\t".($self->{'price'}-$self->{'charge'}).
-	"\t".&main::convertDaysToText($self->{'date'})."\t".
-	    $buyPrice."\t".$buyDate."\t".($self->isWash ? "WASH" : " ")."\t".($self->{'price'}-$self->{'charge'} - $buyPrice)."\n";
+    if($self->{'buy'}->{'washSell'})
+    {
+	my $ws = $self->{'buy'}->{'washSell'};
+
+	if(length $s != 0)
+	{
+	    $s .= ", ";
+	}
+
+	$s .= "basis offset by ".$ws->getGain()." for wash sale on "
+	    .&main::convertDaysToText($ws->{'date'});
+    }
+
+    return $s;
 }
 
 sub toIRSString
 {
     my ($self) = @_;
     
-    my $totalSellPrice = $self->{'price'}-$self->{'charge'};
-    my $sellPriceLeft = $totalSellPrice;
+    my $buy = $self->{'buy'};
+
+    my $buyPrice = $buy->getBasis();
+
+    my $shares = $buy->{'shares'};
+	
+    my $sellPrice = $self->{'price'};
+	
+    my $buyDate = &main::convertDaysToText($buy->{'date'});
     
-    my $i;
+    my $s = $shares."\t".$self->{'symbol'}."\t".$sellPrice.
+	"\t".&main::convertDaysToText($self->{'date'})."\t".
+	$buyPrice."\t".$buyDate."\t".($self->toWashString)."\t".($sellPrice - $buyPrice)."\n";
 
-    my $s = "";
-
-    for($i = 0; $i < @{$self->{'buys'}}; $i++) {
-	my $buy = ${$self->{'buys'}}[$i];
-
-	my $buyPrice = $buy->{'price'};
-	
-	my $shares = $buy->{'shares'};
-	
-	my $sellPrice;
-	
-	if($i != $#{$self->{'buys'}}) {
-	    $sellPrice = $totalSellPrice * $buy->{'shares'}/$self->{'shares'};
-	}
-	else {
-	    $sellPrice = $sellPriceLeft;
-	}
-	
-	$sellPriceLeft -= $sellPrice;
-	
-	my $buyDate = &main::convertDaysToText($buy->{'date'});
-	
-	$s .= $shares."\t".$self->{'symbol'}."\t".$sellPrice.
-	    "\t".&main::convertDaysToText($self->{'date'})."\t".
-	    $buyPrice."\t".$buyDate."\t".($self->isWash ? "WASH" : " ")."\t".($sellPrice - $buyPrice)."\n";
+    if($self->isWash)
+    {
+	$s.="\t\t\t\t\t\t\t".($buyPrice-$sellPrice)."\n";
     }
-    
+
     $s;
-    
 }
 
 1;

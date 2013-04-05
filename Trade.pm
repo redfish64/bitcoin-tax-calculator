@@ -25,10 +25,10 @@ package Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $charge, $symbol, $sharePrice) = @_;
+    my ($class, $date, $shares, $price, $symbol) = @_;
     
-    $self = { date => $date, shares => $shares, price =>$price, charge => $charge, symbol => $symbol,
-	  sharePrice => $sharePrice, block => {}};
+    $self = { date => $date, shares => $shares, price =>$price, symbol => $symbol,
+	  block => {}};
 
     bless $self, $class;
 }
@@ -38,14 +38,12 @@ sub combine
 {
     my($self, $other) = @_;
 
-    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->{'sharePrice'} != 
-	$other->{'sharePrice'} || $self->type ne $other->type || ($self->{'charge'} != 0 && $other->{'charge'} != 0))
+    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type)
     {
 	return 0; #unable to combine
     }
 
     $self->{'shares'} += $other->{'shares'};
-    $self->{'charge'} += $other->{'charge'};
     $self->{'price'} += $other->{'price'};
 
     return 1; #combined successfully
@@ -58,8 +56,7 @@ sub match
  
     #matches if dates are the same, symbols are the same, type is the same and both of the items have not been charged commission
     #note that prices don't need to be the same to be considered within the same block
-    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type || 
-       ($self->{'charge'} != 0 && $other->{'charge'} != 0))
+    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type )
     {
 	return 0; #unable to match
     }
@@ -68,7 +65,6 @@ sub match
     # is a reference
     $self->{'block'} = $other->{'block'};
 
-
     return 1;
 }
 
@@ -76,8 +72,9 @@ sub toString
 {
     my ($self) = @_;
 
-    &main::convertDaysToText($self->{'date'})."\t".$self->{'symbol'}."\t".$self->type."\t".$self->{'shares'}.
-	"\t".$self->{'price'}."\t".$self->{'charge'}."\t".$self->{'sharePrice'}."\t".$self->printWash."\n";
+    &main::convertDaysToText($self->{'date'}).
+	"\t".$self->{'symbol'}."\t".$self->type."\t".$self->{'shares'}.
+	"\t".$self->{'price'}."\t".$self->toWashString;
 }
 
 

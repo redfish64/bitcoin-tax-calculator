@@ -44,7 +44,7 @@ Takes in one or more bitcoin USD csv file from mtgox.com and collesces transacti
 309,"2012-01-12 13:48:21",spent,"BTC bought: [tid:1326376101025292] 171.66883333| BTC at \$6.70001",1150.1829,0
 
 becomes:
-Date,BTC,USD (minus fee),Fee \$,Price Per Share
+Date,BTC,USD (without fee),Fee \$,Price Per Share
 2012-01-12,487.62254772,-3267.07596,0,6.70001002881434
 
 Duplicate lines with the same Index (the first column) are only counted once. In this way you can specify multiple
