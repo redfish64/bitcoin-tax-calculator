@@ -119,5 +119,31 @@
 <node CREATED="1449311740447" ID="ID_1383772840" MODIFIED="1449311755147" TEXT="print out IRS friendly format"/>
 <node CREATED="1449311755639" ID="ID_1978520413" MODIFIED="1449311772675" TEXT="print out debug format (which we already created), maybe formatted like ledger???"/>
 </node>
+<node CREATED="1449369918460" ID="ID_829394826" MODIFIED="1449369918460" POSITION="right" TEXT="">
+<node CREATED="1449199940592" ID="ID_1144242550" MODIFIED="1449199944852" TEXT="taxes">
+<node CREATED="1449199948704" ID="ID_1004222364" MODIFIED="1449200018822">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Any currency trade between one currency and another is a taxable event.
+    </p>
+    <p>
+      
+    </p>
+    <p>
+      We find all these currency trades and turn them into &quot;lots&quot;, and report them with normal lot reporting including wash sales
+    </p>
+  </body>
+</html></richcontent>
+</node>
+<node CREATED="1449200020361" ID="ID_1863911765" MODIFIED="1449200058772" TEXT="Any transfer in/out of Assets is either a fee or some sort of income">
+<node CREATED="1449200072608" ID="ID_977469982" MODIFIED="1449200091116" TEXT="We don&apos;t report fees but we subtract them from the lots in a FIFO"/>
+<node CREATED="1449200091552" ID="ID_1282272844" MODIFIED="1449200109476" TEXT="We report income using current value of income"/>
+</node>
+</node>
+</node>
 </node>
 </map>
