@@ -1,4 +1,4 @@
-3#!/usr/bin/perl -w -s
+#!/usr/bin/perl -w
 
 #TODO 2: Change Copyright to 2012, 2015 for all files
 
@@ -28,7 +28,7 @@
 
 if(@ARGV == 0)
 {
-    print "Usage $0 -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually $ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  <dat file1> [dat file2...]
+    print "Usage $0 -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  <dat file1> [dat file2...]
 
 Reads a ledger style file and creates a capital gains report using the FIFO method, including the calculation of wash sales.
 
@@ -41,7 +41,9 @@ taxable income events and included in the report.
 
 Accounts are split into three categories. Assets, Expenses and Income.
 
-Assets are accounts you own and you wish to calculate capital gains for.
+Assets are accounts you own and you wish to calculate capital gains for. Note that you'll probably
+ want to include liability accounts in this category, since paying down a CC is really the addition
+ to a negative asset.
 Income are accounts from which you receive an Asset. For example, if you mine bitcoin and you have
     an 'Income:Mining' account.
 Expenses are accounts where expenses go. When expenses are one or more of the outputs for trades or
@@ -74,154 +76,185 @@ order specified in the file(s).
     exit -1;
 }
 
-use Getopt::Long;
-my ($assets,$income,$expenses,$base_curr, $accuracy);
+use Data::Dumper;
 
-$accuracy = 20;
-GetOptions ("a=s" => \$assets,    
-	    "i=s"   => \$income,  
-	    "e=s"  => \$expenses,
+use Getopt::Long;
+my ($assets_reg,
+    $income_reg,
+    $expenses_reg,
+    $base_curr, 
+    $accuracy
+    ) = ('^Assets', '^Income', '^Expenses', '$', 20);
+
+GetOptions ("assets=s" => \$assets_reg,    
+	    "income=s"   => \$income_reg,  
+	    "expenses=s"  => \$expenses_reg,
 	    "accuracy=i"  => \$accuracy,
-	    "bc=s" => \$base_curr)
+	    "basecurr=s" => \$base_curr)
     or die("Error in command line arguments\n");
 
-die "missing option" unless $assets && $income && $expenses && $base_cur;
-
-use bignum(a,$accuracy)
+use bignum('a',$accuracy);
 
 use IO::File;
 
-#warning, this is used verbatim for sorting. Make sure that if you loosen the restrictions on this
-# you clean it up to a canonical form before use
-#also, the absolute index is appended with two spaces. This will make items without a
-#time will be ordered before items with a time. 
-my $date_reg = '\d{4}-\d{1,2}-\d{1,2}';
-my $time_reg = '\d\d:\d\d:\d\d';
-my $curr_reg = '(?:\"[^"]*\"|[^\s]+)';
-my $amt_curr_reg = '(?:${curr_reg}\s*[+-]?\s*\d*\.\d+|([+-]?)\s*(\d*\.\d+)\s+(${curr_reg}))';
+our $date_reg = '\d{4}[/-]\d{1,2}[/-]\d{1,2}';
+our $time_reg = '\d\d:\d\d:\d\d';
+our $curr_reg = '(?:\"[^"]*\"|[^\s0-9+.-]+)';
+#                   ^ "foo $" ^ BTC or $, ...
 
-my (@account_lines, %curr_datetime_to_price_quote_data);
- 
-my $tran_index = 0;
+our $amt_curr_reg = "(?:[+-]?\\s*${curr_reg}\\s*[+-]?\\s*\\d*\\.?\\d+|[+-]?\\s*\\d*\\.?\\d+\\s+${curr_reg})";
+#                     ^ +/- <curr> <amount>                          ^ +/- <amount> curr
+#                       or <curr> +/- <amount>
 
-my $line;
-my $line_number;
+our $curr_file;
+our $curr_text;
+our $curr_line;
 
+our @curr_tran_text;
+my %curr_to_price_quotes;
 
-foreach my $file (@ARGV)
+our @trades; #the list of trades sent to the capital gain logic
+
 {
-    my $f = new IO::File;
+    my (@account_lines, %curr_datetime_to_price_quote_data);
     
-    if($file ne '-')
+    my $tran_index = 0;
+    foreach $curr_file (@ARGV)
     {
-	open($f, $file) || die "Can't open $file";
-    }
-    else
-    {
-	$f = \*STDIN;
-	bless $f, 'IO::Handle' unless eval { $f->isa('IO::Handle') };
-    }
-
-    my ($date, $time,$desc, @account_lines, $curr_tran_line, $curr_tran_file);
-    
-    foreach $line (<$f>)
-    {
-	$line_number = $.; #for error func
-	chomp $line;
-
-	#remove comment
-	$line =~ s/;.*//;
-
-	#remove trailing whitespace
-	$line =~ s/^(.*)\s*/$1/;
+	my $f = new IO::File;
 	
-	if($line =~ /^$/)
+	if($curr_file ne '-')
 	{
-	    next;
-	}
-
-	if($line =~ /^P/) # price quote
-	{
-	    #P 2015-04-29 BTC $224.16
-	    my ($date,$time,$curr, $amt_curr) = $line =~ /^P (${date_reg})\s+(${time_reg})\s+(${curr_reg})\s+(.*)$/ 
-		|| error(msg => "Can't read price quote");
-
-	    
-
-	    $price_quote = add_price_quote(0,
-					   create_sort_by($date,$time, $tran_index), 
-					   $curr, parse_amt_curr($amt_curr));
-	    
-	}
-	elsif($line =~ /^\d\d/)
-	{
-	    #2013/05/15 01:29:42 * TID 1368581382704406
-	    #add previous tran if any to db
-	    add_tran($date,$time, $tran_index, $desc, @account_lines,
-		     $curr_tran_line, $curr_tran_file);
-
-	    $tran_index++;
-	    $curr_tran_line = $.;
-	    $curr_tran_file = $file;
-	    @account_lines = ();
-
-	    ($date,$time,$desc) = $line =~ /^$({date_reg})(?:\s+(${time_reg}))\s+(.*)/ 
-		|| error(msg => "Can't parse datetime, must be YYYY-MM-DD or YYYY-MM-DD hh:mm:ss");
-	    next;
-	}
-	elsif($line =~ /^[^\s]/)
-	{
-	    error(msg => "Don't understand line");
+	    open($f, $curr_file) || die "Can't open $curr_file";
 	}
 	else
 	{
-	    #    Assets:MtGox                  -17.51286466 BTC @ $ 110.10000
-	    #    Assets:MtGox                  $ 1916.59740
-	    my ($account, $amt_curr, $price_amt_curr) = 
-		$line =~ /^\s+(.*?)(?:  |\t)\s*(${amt_curr_reg})(?: @ (${amt_curr_reg}))?/ 
-		|| error(msg => "Can't read account line");
+	    $f = \*STDIN;
+	    bless $f, 'IO::Handle' unless eval { $f->isa('IO::Handle') };
+	}
 
-	    my ($amt,$curr) = parse_amt_curr($amt_curr) if $amt_curr;
+	my ($date, $time,$desc, @account_lines, $curr_tran_line, $curr_tran_file);
 
-	    my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
+	$curr_line = 0;
+	
+	foreach $curr_text (<$f>)
+	{
+	    $curr_line++;
+	    chomp $curr_text;
 
-	    #we only care about our base currency
-	    if($price_curr ne $base_cur)
+	    #remove comment
+	    $curr_text =~ s/;.*//;
+
+	    #remove trailing whitespace
+	    $curr_text =~ s/^(.*?)\s*$/$1/;
+	    
+	    if($curr_text =~ /^$/)
 	    {
-		$price_amt = undef;
+		next;
 	    }
 
-	    push @account_lines, { account => $account, amt => $amt, 
-				   curr => $curr, price_amt => $price_amt
-	    };
-	    
-	}
-    }
+	    if($curr_text =~ /^P/) # price quote
+	    {
+		#P 2015-04-29 BTC $224.16
+		my ($date,$time,$curr, $amt_curr) = 
+		    $curr_text =~ 
+		    /^P (${date_reg})(?:\s+(${time_reg}))?\s+(${curr_reg})\s+(${amt_curr_reg})$/
+		    or error(msg => "Can't read price quote");
 
-    add_tran($date, $time, $tran_index, $desc, @account_lines,
-	     $curr_tran_line, $curr_tran_file);
+		$time = "00:00:00" if !defined $time;
+
+		add_price_quote($date,$time,$tran_index,
+				$curr, parse_amt_curr($amt_curr));
+		
+	    }
+	    elsif($curr_text =~ /^account .*/) # account command, ignore
+	    {
+		next;
+	    }
+	    elsif($curr_text =~ /^\d\d/)
+	    {
+		#2013/05/15 01:29:42 * TID 1368581382704406
+		#add previous tran if any to db
+		add_tran($date,$time, $tran_index, $desc, 
+			 $curr_tran_line, $curr_tran_file, \@curr_tran_text, @account_lines);
+
+		$tran_index++;
+		$curr_tran_line = $curr_line;
+		$curr_tran_file = $curr_file;
+		@account_lines = ();
+
+		@curr_tran_text = ($curr_text);
+
+		($date,$time,$desc) = $curr_text =~ /^(${date_reg})(?:\s+(${time_reg}))?\s+(.*)/ 
+		    or error(txt=>$curr_text, msg => "Can't parse datetime, must be YYYY-MM-DD or YYYY-MM-DD hh:mm:ss");
+		$time = "00:00:00" if !defined $time;
+		
+		next;
+	    }
+	    elsif($curr_text =~ /^[^\s]/)
+	    {
+		error(msg => "Don't understand line, '$curr_text'");
+	    }
+	    else
+	    {
+		#    Assets:MtGox                  -17.51286466 BTC @ $ 110.10000
+		#    Assets:MtGox                  $ 1916.59740
+		my ($account, $amt_curr, $price_amt_curr) = 
+		    $curr_text =~ /^\s+((?:[^\s]| [^\s])+)(?:[  \s|\t]\s*(${amt_curr_reg})(?: @ (${amt_curr_reg}))?)?$/ 
+		    or error(txt=>$curr_text, msg => "Can't read account line");
+
+		my ($amt,$curr) = parse_amt_curr($amt_curr) if $amt_curr;
+
+		my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
+
+		#we only care about our base currency
+		if((defined $price_amt) && $price_curr ne $base_curr)
+		{
+		    $price_amt = undef;
+		}
+
+		push @account_lines, { acct => $account, amt => $amt, 
+				       curr => $curr, price_amt => $price_amt
+		};
+		
+		push @curr_tran_text, $curr_text;
+	    }
+	}
+
+	add_tran($date, $time, $tran_index, $desc, $curr_tran_line, $curr_tran_file,
+		 \@curr_tran_text, @account_lines);
+    }
 }
+
+die "TODO: send \@trades to wash stuff";
+
 
 #utility to convert a hash to an array sorted by keys
 sub hv_to_a
 {
     my ($size, $hash) = @_;
 
-    die unless $size == %hash;
+    if($size != (keys %$hash))
+    {
+	die "size $size doesn't match hash count ".(keys %$hash)." hash is ".
+	    Dumper($hash);
+    }
 
-    map { $hash{$_} } (sort keys %hash);
+    map { ($hash->{$_}); } (sort keys %$hash);
 }
 
 sub balance_account_lines
 {
+    my ($file, $line, $tran_text, @account_lines) = @_;
     #balance lines (this is the standard ledger operation to fill values for lines that don't exist
     my $empty_account;
     my %curr_to_balance;
+    my %curr_to_price_amt;
 
     my $index = 0;
-    @_ = map 
-    {
-	my ($acct,$amt,$curr) = hv_to_a(3,\$_);
+    @account_lines = map {
+	; #you must keep this here!
+	my ($acct,$amt,$curr,$price_amt) = hv_to_a(4,$_);
 	if(defined $curr)
 	{
 	    $curr_to_balance{$curr} = 
@@ -230,19 +263,26 @@ sub balance_account_lines
 
 	    delete $curr_to_balance{$curr} if $curr_to_balance{$curr} == 0;
 
+	    if($price_amt)
+	    {
+		error(file=>$file, line=>$line, tran_text => $tran_text, msg=>"more than one curr to price amt")
+		    if (defined $curr_to_price_amt{$curr}) && $curr_to_price_amt{$curr} ne $price_amt;
+		
+		$curr_to_price_amt{$curr} = $price_amt;
+	    }
+	    
 	    ($_);
 	}
 	else
 	{
-	    error(msg=>"More than one empty account line. Cannot balance\n")
+	    error(file=>$file, line=>$line, tran_text => $tran_text, msg=>"More than one empty account line. Cannot balance")
 		if $empty_account;
 
 	    $empty_account = $acct;
 	    (); #eat the empty line
 	}
-    }
-    (@_);
-
+    } @account_lines;
+    
     if(defined $empty_account)
     {
 	my @res;
@@ -250,50 +290,70 @@ sub balance_account_lines
 	#put all non balancing currencies into it
 	@res = map {
 	    my $bal = $curr_to_balance{$_};
-	    ({ acct => $empty_account, amt => -$bal, curr => $_ });
+	    if($bal != 0)
+	    {
+		({ acct => $empty_account, amt => -$bal, curr => $_, price_amt => $curr_to_price_amt{$_} });
+	    }
 	    else { (); }
 	} (sort keys %curr_to_balance);
 
-	push @res, @_; #add the other lines
+	push @res, @account_lines; #add the other lines
 
 	return @res;
     }
     else 
     {
-	#make sure all the account values balance
-	use Data::Dumper;
-	foreach (sort keys %curr_to_balance)
+	if((keys %curr_to_balance) == 1)
 	{
-	    error(msg => "Non balancing currency, $_: ".$curr_to_balance{$_}.", ".Dumper(@_));
+	    #make sure all the account values balance
+	    foreach (keys %curr_to_balance)
+	    {
+		error(file=>$file, line=>$line, tran_text => $tran_text, 
+		      msg => "Non balancing currency, $_: ".$curr_to_balance{$_});
+	    }
 	}
-
-	return @_;
+	
+	return @account_lines;
     }
 }
 
 sub assign_hash_defaults
 {
     my ($defaults, %hash) = @_;
-    map { ($_, $hash{$_} or $defaults->{$_}) } (keys %$defaults);
+    return (map { 
+	($_, ($hash{$_} or $defaults->{$_})) 
+	    } 
+	    (keys %$defaults));
 }    
 
 
 
 sub error
 {
-    my ($file, $line, $msg) =
-	hv_to_a(3,
-		assign_hash_defaults({file => $curr_file,
-				      line => $curr_line_number,
-				      msg => ""},
-				     @_);
+    my ($file, $line, $msg,$tran_text, $txt) =
+	hv_to_a(5,
+		{assign_hash_defaults({file => $curr_file,
+				      line => $curr_line,
+				      msg => "",
+				      tran_text => undef,
+				      txt => "",
+				      },
+				     @_)});
     
     print STDERR "ERROR $file: $line  -- $msg\n";
+    if($txt)
+    {
+	print STDERR "    Line is: $txt\n\n";
+    }
+    if($tran_text)
+    {
+	print STDERR "Tran is:\n".join("\n",@$tran_text)."\n\n";
+    }
 }
 
 sub add_tran
 {
-    my ($date, $time, $index, $desc, @account_lines, $line, $file) = @_;
+    my ($date, $time, $index, $desc, $line, $file, $tran_text, @account_lines) = @_;
 
     #if there are no accounts, there is no transaction
     if(@account_lines == 0)
@@ -301,7 +361,7 @@ sub add_tran
 	return;
     }
 
-    @account_lines = balance_account_lines($file, $line, @account_lines);
+    @account_lines = balance_account_lines($file, $line, $tran_text, @account_lines);
 
     #figure out the currency types on each side of the transaction
     #and the amounts
@@ -310,15 +370,15 @@ sub add_tran
 
     foreach (@account_lines)
     { 
-	my ($acct,$amt,$curr) = hv_to_a(3,$$_);
+	my ($acct,$amt,$curr, $price_amt) = hv_to_a(4,$_);
 
-	if($acct =~ /${assets}/)
+	if($acct =~ /${assets_reg}/)
 	{
-	    my ($asset_curr, $asset_amt, $expense) =
+	    my ($asset_curr, $asset_amt) =
 		$amt > 0 ? 
-		(\$pos_asset_currency, \$pos_asset_amount, \$pos_expense)
+		(\$pos_asset_currency, \$pos_asset_amount)
 		:
-		(\$neg_asset_currency, \$neg_asset_amount, \$neg_expense);
+		(\$neg_asset_currency, \$neg_asset_amount);
 	    
 	    error(file => $file, line => $line, msg => "Only one currency per side of the transaction is allowed, $pos_asset_currency and $curr exist")
 		if (defined $$asset_curr) && $$asset_curr ne $curr;
@@ -327,25 +387,138 @@ sub add_tran
 	    $$asset_amt += $amt;
 	}
     }
-    
-    
+
+    my ($pos_expense, $neg_expense) = (0,0);
+
+    #figure out where to put the expense accounts
+    foreach (@account_lines)
+    { 
+	my ($acct,$amt,$curr,$price_amt) = hv_to_a(4,$_);
+
+	if($acct =~ /${expenses_reg}/)
+	{
+	    if($pos_asset_currency && $curr eq $pos_asset_currency)
+	    {
+		$pos_expense += $amt;
+	    }
+	    elsif($neg_asset_amount && $curr eq $neg_asset_currency)
+	    {
+		$neg_expense += $amt;
+	    }
+	    else
+	    {
+		error(file => $file, line => $line, msg => "Expense currency must be equal to one of the currencies of the transaction, got: $curr, pos curr $pos_asset_currency, neg curr $neg_asset_currency");
+	    }
+	}
+    }
+
+    if(map { 	
+	if($_->{acct} =~ /${income_reg}/) { (1) }
+	else { (); }
+       } (@account_lines))
+    {
+	#an income transaction
+
+	error(file => $file, line => $line, msg => "Income can't have expense accounts")
+	    if $pos_expense || $neg_expense;
+	
+	
+	push @trades, { sort_by => create_sort_by($date,$time,$index),
+			type => 'buy',
+			amt => $pos_asset_amount,
+			price => 0,
+			curr => $pos_asset_currency };
+	error(file => $file, line => $line, msg => "TODO handle income transaction");
+    }
+    else
+    {
+	if((!defined $pos_asset_currency) || (!defined $neg_asset_currency))
+	{
+	    #we only care about internal (asset to asset) transactions. If the money is being sent/received
+	    #somewhere else, its not 
+	    return;
+	}
+	
+	#if an internal transfer from one asset account to another
+	if($pos_asset_currency eq $neg_asset_currency)
+	{
+	    #fees from transferring funds around are not deductable AFAIK
+	    #http://www.beansmart.com/taxes/are-wire-transfer-cost-deductible-20873-.htm
+	    #so we ignore it
+	    return;
+	}
+	
+	my ($pos_expense, $neg_expense) = (0,0);	
+
+	if($pos_asset_currency ne $base_curr)
+	{
+	    push @trades, {
+		type => 'buy',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => $pos_asset_amount,
+		expense => $pos_expense,
+		#if the other side is the base currency, we use it as
+		#the cost basis, otherwise we leave it undef, to calculate
+		#after we are done reading the files
+		curr => $pos_asset_currency,
+
+		#value adjusting for expenses
+		total_value => ($neg_asset_currency eq $base_curr ?
+			  -($neg_asset_amount + $neg_expense)
+			  : undef)
+	    };
+	}
+	if($neg_asset_currency ne $base_curr)
+	{
+	    push @trades, {
+		
+		type => 'sell',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => $neg_asset_amount,
+		expense => $neg_expense,
+		#if the other side is the base currency, we use it as
+		#the cost basis, otherwise we leave it undef, to calculate
+		#after we are done reading the files
+		curr => $neg_asset_currency,
+
+		#value adjusting for expenses
+		total_value => ($pos_asset_currency eq $base_curr ?
+			  $pos_asset_amount + $pos_expense 
+			  : undef)
+	    };
+	}
+    }
+}
+
+
+sub create_sort_by
+{
+    my ($date, $time, $index) = @_;
+
+    #note if there is no time, then there will be 2 spaces between date and index. This will make
+    #all transactions without a time the first for the day
+    return $date." ".$time." I".$index;
+}
 
 sub add_price_quote
 {
-    my ($weight, $date, $time, $curr, $amt, $pq_base_curr) = @_;
+    my ($date, $time, $index, $curr, $amt, $pq_base_curr) = @_;
 
     $time = (!defined $time) ? "" : $time;
 
     if($pq_base_curr eq $base_curr)
     {
-	my $pq_data = $curr_datetime_to_price_quote_data{$curr}->{$date}->{$time} 
-	or ($curr_datetime_to_price_quote_data{$curr}->{$datetime} = { total_weight => 0, pq_list => [] });
-
-	$pq_data->{total_weight} += $weight;
-	push @{$pq_data->{pq_list}}, { weight => $weight, 
-				       curr => $curr,
-				       amt => $amt,
-				       pq_base_curr => $pq_base_curr
+	push @{$curr_to_price_quotes{$curr}}, 
+	{
+	    date => $date,
+	    time => $time,
+	    index => $index,
+	    curr => $curr,
+	    amt => $amt,
 	};
     }
     #else ignore it, because it's not associated to our currency
@@ -358,11 +531,11 @@ sub parse_amt_curr
 
     my ($curr,$amt);
 
-    #if currency is printed first, ex $ 1.23
-    if($s =~ /(${curr_reg})\s*([+-]?)\s*(\d*\.\d+)/)
+    #if sign is first, currency is second, ex -$ 1.23
+    if($s =~ /([+-]?)\s*(${curr_reg})\s*(\d*\.?\d+)/)
     {
-	$curr = $1;
-	if($2 eq "-")
+	$curr = $2;
+	if($1 eq "-")
 	{
 	    $amt = -$3;
 	}
@@ -371,8 +544,8 @@ sub parse_amt_curr
 	    $amt = $3;
 	}
     } 
-    #if currency is second, ex 1.23 BTC
-    elsif($s =~ /([+-]?)\s*(\d*\.\d+)\s+(${curr_reg})/)
+    #if currency is printed first, sign second, ex $ - 1.23
+    if($s =~ /(${curr_reg})\s*([+-]?)\s*(\d*\.?\d+)/)
     {
 	$curr = $1;
 	if($2 eq "-")
@@ -384,24 +557,25 @@ sub parse_amt_curr
 	    $amt = $3;
 	}
     }
+    #if currency is second, ex 1.23 BTC
+    elsif($s =~ /([+-]?)\s*(\d*\.?\d+)\s+(${curr_reg})/)
+    {
+	$curr = $3;
+	if($1 eq "-")
+	{
+	    $amt = -$2;
+	}
+	else
+	{
+	    $amt = $2;
+	}
+    }
     else
     {
 	return undef;
     }
 
-    return ($curr,$amt);
+    return ($amt, $curr);
     
 }
 
-sub read_account_line
-{
-    my ($line) = @_;
-
-
-    
-}
-
-sub add_tran
-{
-    
-}

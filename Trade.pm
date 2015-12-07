@@ -49,25 +49,6 @@ sub combine
     return 1; #combined successfully
 }
 
-#tries to match similar trades in the same block
-sub match
-{
-    my ($self, $other) = @_;
- 
-    #matches if dates are the same, symbols are the same, type is the same and both of the items have not been charged commission
-    #note that prices don't need to be the same to be considered within the same block
-    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type )
-    {
-	return 0; #unable to match
-    }
-
-    #market this to be part of the block of the other. remember, block
-    # is a reference
-    $self->{'block'} = $other->{'block'};
-
-    return 1;
-}
-
 sub toString
 {
     my ($self) = @_;

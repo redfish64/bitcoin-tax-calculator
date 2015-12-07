@@ -45,13 +45,17 @@ sub type
 
 sub split
 {
-    #sellCause may be undef, which means this call is not being recursive
+    #sellCause may be undef, which means this call is not being split because its attached to a sell
     my ($self, $trades, $newShares, $sellCause, $splitSell) = @_;
 
+    #buys and sells point to each other. So if a buy is split, we have to split
+    #the corresponding sell and vice versa.
     if(!(defined $sellCause))
     {
 	if($self->{'sell'})
 	{
+	    #when we split our sell, it will automatically split us (this time with sellCause defined)
+	    #so after this, we just return
 	    $self->{'sell'}->split($trades,$newShares,$self);
 	    return;
 	}
@@ -111,8 +115,7 @@ sub getBasis
     if(defined $washSale)
     {
 	#add the loss from the wash sale
-	#HACK!
-	#$basis -= $washSale->getGain();
+	$basis -= $washSale->getGain();
     }
 
     return $basis;

@@ -114,58 +114,74 @@ foreach $file (@ARGV)
 	
 	my $dup = $index_to_line{$_[0]};
 	
-	if((defined $dup) && $dup ne $_)
+	if(defined $dup)
 	{
-	    die "Error: File '$file', line $., Index $_[0] has two entries and they differ. Entries below:
+	    if ( $dup ne $_)
+	    {
+		die "Error: File '$file', line $., Index $_[0] has two entries and they differ. Entries below:
 $dup
 ---
 $_
 ";
+	    }
+	    #skip duplicate entries
+	    else { next; }
+	    
 	}
 	$index_to_line{$_[0]} = $_;
 	
 	$max_index = $max_index > $_[0] ? $max_index : $_[0];
-	
-#    print $_."\n";
-	
-	my $date = $_[1];
-	$date =~ s/"(.*?) .*/$1/;
-	
-	if(!($date eq $last_date))
-	{
-	    if($last_date ne "") {
-		print_date_info($last_date, $dbtcb, $dusds, $dbtcs, $dusdb, $dfee);
-	    }
-	    $last_date = $date;
-	    $dusds=$dbtcs=
-		$dusdb=$dbtcb=
-		$dfee=0;
-	}
-	
-	my $t = $_[2];
-	
-	if($t eq "in" || $t eq "withdraw" || $t eq "deposit")
-	{}
-	elsif ($t eq "spent")
-	{
-	    $dbtcb += calc_btc("bought",$_[3]);
-	    $dusds += $_[4];
-	}
-	elsif ($t eq "earned")
-	{
-	    $dbtcs += calc_btc("sold",$_[3]);
-	    $dusdb += $_[4];
-	}
-	elsif ($t eq "fee")
-	{
-	    $dfee += $_[4];
-	}
-	else {die "Cannot read transaction type, file '$file', line $., transaction type '$t'";}
     }
-    
-    print_date_info($last_date, $dbtcb, $dusds, $dbtcs, $dusdb, $dfee);
 }
 
+	
+#    print $_."\n";
+
+for(my $i = 0; $i <= $max_index	; $i++)
+{
+    $_ = $index_to_line{$i};
+
+    next unless defined $_;
+    
+    @_ = split /,/,$_;
+    
+    my $date = $_[1];
+    $date =~ s/"(.*?) .*/$1/;
+    
+    if(!($date eq $last_date))
+    {
+	if($last_date ne "") {
+	    print_date_info($last_date, $dbtcb, $dusds, $dbtcs, $dusdb, $dfee);
+	}
+	$last_date = $date;
+	$dusds=$dbtcs=
+	    $dusdb=$dbtcb=
+	    $dfee=0;
+    }
+    
+    my $t = $_[2];
+    
+    if($t eq "in" || $t eq "withdraw" || $t eq "deposit")
+    {}
+    elsif ($t eq "spent")
+    {
+	$dbtcb += calc_btc("bought",$_[3]);
+	$dusds += $_[4];
+    }
+    elsif ($t eq "earned")
+    {
+	$dbtcs += calc_btc("sold",$_[3]);
+	$dusdb += $_[4];
+    }
+    elsif ($t eq "fee")
+    {
+	$dfee += $_[4];
+    }
+    else {die "Cannot read transaction type, file '$file', line $., transaction type '$t'";}
+
+}
+
+print_date_info($last_date, $dbtcb, $dusds, $dbtcs, $dusdb, $dfee);
 
 #print gaps in %index_to_line
 my $last_found = 1;

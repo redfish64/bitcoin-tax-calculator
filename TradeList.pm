@@ -70,8 +70,6 @@ sub add
 	    return;
 	}
 
-	#if they can't be combined, they might be closely related enough to be in the same block
-	$otherTrade->match($trade);
     }
 
     #we have to add it to the end of the list
@@ -153,7 +151,6 @@ sub checkWashesAndAssignBuysToSells
 	    
 	    if($gain < 0)
 	    {
-		#we'll start from where we are in the list, since the previous ones should be marked as "first buys"
 		for($i = 0;$i < @{$list}; $i ++)
 		{
 		    $buy = $list->[$i];

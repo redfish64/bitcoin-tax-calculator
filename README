@@ -42,5 +42,13 @@ End for each
 
 ----
 
+Interpreting the output:
+
+
+The results will have two sections, separated by "------------". The second section is what gets entered into the Schedule D form.
+
+The first section is to help you see what is going on. The lines correspond to the lines in wash_in.csv. However, some lines may be split in multiple sub transaactions. So, for example, a single buy in wash_in.csv for 1000 BTC on 4/2/13 may be split into a 300 BTC buy, a 600 BTC buy and a 100 BTC buy all on that same date. The sells then indicate the buy lots that they correspond to.
+
+
 Hope it helps! Tim Engler, engler@gmail.com
 
