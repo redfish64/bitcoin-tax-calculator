@@ -207,14 +207,9 @@ our @trades; #the list of trades sent to the capital gain logic
 
 		my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
 
-		#we only care about our base currency
-		if((defined $price_amt) && $price_curr ne $base_curr)
-		{
-		    $price_amt = undef;
-		}
-
 		push @account_lines, { acct => $account, amt => $amt, 
-				       curr => $curr, price_amt => $price_amt
+				       curr => $curr, price_amt => $price_amt,
+				       price_curr => $price_curr
 		};
 		
 		push @curr_tran_text, $curr_text;
@@ -250,27 +245,23 @@ sub balance_account_lines
     my $empty_account;
     my %curr_to_balance;
     my %curr_to_price_amt;
-
+    
     my $index = 0;
     @account_lines = map {
-	; #you must keep this here!
-	my ($acct,$amt,$curr,$price_amt) = hv_to_a(4,$_);
+	; #you must keep the ';'!
+	my ($acct,$amt,$curr,$price_amt,$price_curr) = hv_to_a(5,$_);
 	if(defined $curr)
 	{
+	    if(defined $price_amt)
+	    {
+		$curr = $price_curr;
+		$amt = $amt * $price_amt;
+	    }
+	    
 	    $curr_to_balance{$curr} = 
 		($curr_to_balance{$curr} or 0)
 		+ $amt;
 
-	    delete $curr_to_balance{$curr} if $curr_to_balance{$curr} == 0;
-
-	    if($price_amt)
-	    {
-		error(file=>$file, line=>$line, tran_text => $tran_text, msg=>"more than one curr to price amt")
-		    if (defined $curr_to_price_amt{$curr}) && $curr_to_price_amt{$curr} ne $price_amt;
-		
-		$curr_to_price_amt{$curr} = $price_amt;
-	    }
-	    
 	    ($_);
 	}
 	else
@@ -282,7 +273,8 @@ sub balance_account_lines
 	    (); #eat the empty line
 	}
     } @account_lines;
-    
+
+    #if there is an account to scoop up the remainders
     if(defined $empty_account)
     {
 	my @res;
@@ -292,9 +284,9 @@ sub balance_account_lines
 	    my $bal = $curr_to_balance{$_};
 	    if($bal != 0)
 	    {
-		({ acct => $empty_account, amt => -$bal, curr => $_, price_amt => $curr_to_price_amt{$_} });
+		({ acct => $empty_account, amt => -$bal, curr => $_, price_amt => undef, price_curr => undef });
 	    }
-	    else { (); }
+	    else { delete $curr_to_balance{$_}; }
 	} (sort keys %curr_to_balance);
 
 	push @res, @account_lines; #add the other lines
@@ -308,8 +300,11 @@ sub balance_account_lines
 	    #make sure all the account values balance
 	    foreach (keys %curr_to_balance)
 	    {
-		error(file=>$file, line=>$line, tran_text => $tran_text, 
-		      msg => "Non balancing currency, $_: ".$curr_to_balance{$_});
+		if($curr_to_balance{$_} != 0)
+		{
+		    error(file=>$file, line=>$line, tran_text => $tran_text, 
+			  msg => "Non balancing currency, $_: ".$curr_to_balance{$_});
+		}
 	    }
 	}
 	
@@ -370,7 +365,7 @@ sub add_tran
 
     foreach (@account_lines)
     { 
-	my ($acct,$amt,$curr, $price_amt) = hv_to_a(4,$_);
+	my ($acct,$amt,$curr, $price_amt, $price_curr) = hv_to_a(5,$_);
 
 	if($acct =~ /${assets_reg}/)
 	{
@@ -380,7 +375,7 @@ sub add_tran
 		:
 		(\$neg_asset_currency, \$neg_asset_amount);
 	    
-	    error(file => $file, line => $line, msg => "Only one currency per side of the transaction is allowed, $pos_asset_currency and $curr exist")
+	    error(file => $file, line => $line, msg => "Only one currency per side of the transaction is allowed, $$asset_curr and $curr exist")
 		if (defined $$asset_curr) && $$asset_curr ne $curr;
 	    
 	    $$asset_curr = $curr;
@@ -393,7 +388,7 @@ sub add_tran
     #figure out where to put the expense accounts
     foreach (@account_lines)
     { 
-	my ($acct,$amt,$curr,$price_amt) = hv_to_a(4,$_);
+	my ($acct,$amt,$curr,$price_amt, $price_curr) = hv_to_a(5,$_);
 
 	if($acct =~ /${expenses_reg}/)
 	{
@@ -574,6 +569,19 @@ sub parse_amt_curr
     {
 	return undef;
     }
+
+    #convert $amt to a bigfloat with specified precision
+    my $precision = 0;
+    
+    if($amt =~ /\.(.*)/)
+    {
+	$precision = -(length $1);
+    }
+
+    use Math::BigFloat;
+
+    $amt = Math::BigFloat->new($amt);
+    $amt->precision($precision);
 
     return ($amt, $curr);
     
