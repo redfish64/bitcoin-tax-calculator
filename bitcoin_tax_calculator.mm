@@ -161,7 +161,105 @@
 </richcontent>
 </node>
 <node CREATED="1449659903325" ID="ID_466455675" MODIFIED="1449659943762" TEXT="Then we make sure that the unassigned buys + transfers equals balance"/>
-<node CREATED="1449659944341" ID="ID_1197774940" MODIFIED="1449659967737" TEXT="Or just check that all assigned buys and sells add up to zero"/>
+</node>
+<node CREATED="1449704070921" ID="ID_1350184911" MODIFIED="1449704072597" POSITION="right" TEXT="plan3">
+<node CREATED="1449704075136" ID="ID_316363856" MODIFIED="1449704082284" TEXT="Account types">
+<node CREATED="1449704083376" ID="ID_1283694030" MODIFIED="1449704572887" TEXT="Assets">
+<node CREATED="1449704574993" ID="ID_8753814" MODIFIED="1449704583508" TEXT="Things we own"/>
+<node CREATED="1449704675929" ID="ID_1041020649" MODIFIED="1449704677701" TEXT="Restrictions">
+<node CREATED="1449704679025" ID="ID_1052525172" MODIFIED="1449704695925" TEXT="Only two currencies allowed">
+<node CREATED="1449704744482" ID="ID_114930603" MODIFIED="1449704784442">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Rationale: We could technically support more than 2 but it makes it more complex, because we'd have to get the fair market value of each, and adjust it for the total bought.
+    </p>
+  </body>
+</html>
+</richcontent>
+</node>
+</node>
+</node>
+<node CREATED="1449704572881" ID="ID_164550394" MODIFIED="1449704593315" TEXT="Plan">
+<node CREATED="1449704099904" ID="ID_1611545438" MODIFIED="1449704107236" TEXT="Convert to +/-">
+<node CREATED="1449704108704" ID="ID_462998287" MODIFIED="1449704113268" TEXT="+ == Buy"/>
+<node CREATED="1449704113632" ID="ID_870687886" MODIFIED="1449704116860" TEXT="- == Sell"/>
+<node CREATED="1449704126409" ID="ID_1707577342" MODIFIED="1449704135084" TEXT="Ignore base currency buy/sells"/>
+<node CREATED="1449704135520" ID="ID_1053883674" MODIFIED="1449704150636" TEXT="Use base currency buy/sells to calculate value of other side if exists"/>
+</node>
+</node>
+</node>
+<node CREATED="1449704084872" ID="ID_1602792321" MODIFIED="1449704598039" TEXT="Income">
+<node CREATED="1449704601584" ID="ID_1694802152" MODIFIED="1449704608276" TEXT="Taxable income"/>
+<node CREATED="1449704663744" ID="ID_797421972" MODIFIED="1449704665869" TEXT="Restrictions">
+<node CREATED="1449704208761" ID="ID_22145562" MODIFIED="1449704843292" TEXT="Assets must be + only"/>
+<node CREATED="1449704208761" ID="ID_343133123" MODIFIED="1449704838621" TEXT="Assets must have only one currency"/>
+</node>
+<node CREATED="1449704598017" ID="ID_463035083" MODIFIED="1449704599580" TEXT="Plan">
+<node CREATED="1449704157305" ID="ID_273753604" MODIFIED="1449704162116" TEXT="Convert to">
+<node CREATED="1449704163249" ID="ID_1494185922" MODIFIED="1449704280865">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Buy for $0 or invoke Asset logic assuming sell side is zero
+    </p>
+  </body>
+</html></richcontent>
+</node>
+<node CREATED="1449704169240" ID="ID_735525978" MODIFIED="1449704182853" TEXT="Sell for current market value"/>
+<node CREATED="1449704183641" ID="ID_462967178" MODIFIED="1449704190445" TEXT="Buy for current market value"/>
+</node>
+</node>
+</node>
+<node CREATED="1449704086576" ID="ID_1965645215" MODIFIED="1449704088300" TEXT="Expenses">
+<node CREATED="1449704285497" ID="ID_1191009642" MODIFIED="1449704303462">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Ignore because
+    </p>
+  </body>
+</html>
+</richcontent>
+<node CREATED="1449704304896" ID="ID_912591547" MODIFIED="1449704377014">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      For regular asset trades, expenses are already subtracted from the received amount and added to the spent amount
+    </p>
+  </body>
+</html>
+</richcontent>
+</node>
+<node CREATED="1449704436193" ID="ID_102530921" MODIFIED="1449704453637" TEXT="For income, the amount we received already has expenses subtracted"/>
+<node CREATED="1449704457810" ID="ID_1149330887" MODIFIED="1449704487468" TEXT="ie. expenses are already removed. Think of going to a restaurant with hidden VAT tax. You don&apos;t see it, it doesn&apos;t effect you. Same here"/>
+</node>
+</node>
+<node CREATED="1449704088897" ID="ID_1193906935" MODIFIED="1449704096636" TEXT="Unknown">
+<node CREATED="1449704490680" ID="ID_710104680" MODIFIED="1449704495084" TEXT="Error if found"/>
+</node>
+</node>
+<node CREATED="1449704924392" ID="ID_1819787136" MODIFIED="1449704933916" TEXT="Total everything into these four accounts">
+<node CREATED="1449704937624" ID="ID_248994247" MODIFIED="1449704943645" TEXT="Each account contains">
+<node CREATED="1449704944800" ID="ID_1753328" MODIFIED="1449704978908" TEXT="Currency to Amount"/>
+</node>
+</node>
+<node CREATED="1449704984777" ID="ID_645233873" MODIFIED="1449704991620" TEXT="Check restrictions"/>
+<node CREATED="1449704993736" ID="ID_1385710032" MODIFIED="1449705007149" TEXT="Create buys/sells"/>
+<node CREATED="1449705007768" ID="ID_1639930209" MODIFIED="1449705017468" TEXT="Compute taxes"/>
+<node CREATED="1449705017777" ID="ID_576645981" MODIFIED="1449705022492" TEXT="Print results"/>
 </node>
 </node>
 </map>

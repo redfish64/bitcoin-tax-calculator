@@ -220,6 +220,10 @@ our @trades; #the list of trades sent to the capital gain logic
 		};
 		
 		push @curr_tran_text, $curr_text;
+
+		error(txt=>$curr_text, msg => "Account $account matches both income and assets at the same time") if $account =~ /${assets_reg}/ && $account =~ /{$income_reg}/;
+		error(txt=>$curr_text, msg => "Account $account matches both income and expenses at the same time") if $account =~ /${expenses_reg}/ && $account =~ /{$income_reg}/;
+		error(txt=>$curr_text, msg => "Account $account matches both assets and expenses at the same time") if $account =~ /${expenses_reg}/ && $account =~ /{$assets_reg}/;
 	    }
 	}
 
@@ -236,9 +240,12 @@ foreach $curr (keys %curr_to_price_quotes)
 	[sort compare_date_time_index @{$curr_to_price_quotes{$curr}}];
 }
 
-#print_reports();
+#print_csv();
 
-#die;
+
+print_reports();
+
+die;
     
 use Sell;
 use Buy;
@@ -555,7 +562,8 @@ sub add_tran
 		date => $date,
 		time => $time,
 		index => $index,
-		amt => - ($pos_expense + $neg_expense),
+		amt => -($pos_expense + $neg_expense),
+		expense => ($pos_expense + $neg_expense),
 		curr => $pos_asset_currency,
 	    };
 	    
@@ -564,50 +572,31 @@ sub add_tran
 	    #so we ignore it
 	    return;
 	}
-	
+
 	my ($pos_expense, $neg_expense) = (0,0);	
 
 	push @trades, {
 	    file => $file,
 	    line => $line,
 	    tran_text => [@$tran_text],
-	    type => 'buy',
+	    type => 'trade',
 	    date => $date,
 	    time => $time,
 	    index => $index,
-	    amt => $pos_asset_amount,
-	    expense => $pos_expense,
+	    buy_amt => $pos_asset_amount, #this is the net amount, ie minus expenses
+	    buy_expense => $pos_expense,
 	    #if the other side is the base currency, we use it as
 	    #the cost basis, otherwise we leave it undef, to calculate
 	    #after we are done reading the files
-	    curr => $pos_asset_currency,
+	    buy_curr => $pos_asset_currency,
 	    
-	    #how much the transaction cost me including expenses
-	    net_price => (-$neg_asset_amount + $neg_expense),
-	    other_curr => $neg_asset_currency
-		
-	};
-	push @trades, {
-	    file => $file,
-	    line => $line,
-	    tran_text => [@$tran_text],
-	    
-	    type => 'sell',
-	    date => $date,
-	    time => $time,
-	    index => $index,
-	    amt => -$neg_asset_amount,
-	    expense => $neg_expense,
+	    sell_amt => -$neg_asset_amount,
+	    sell_expense => $neg_expense,
 	    #if the other side is the base currency, we use it as
 	    #the cost basis, otherwise we leave it undef, to calculate
 	    #after we are done reading the files
-	    curr => $neg_asset_currency,
-	    
-	    #how much I received for the sale minus expesnes
-	    net_price => ($pos_asset_amount - $pos_expense),
-	    other_curr => $pos_asset_currency
+	    sell_curr => $neg_asset_currency,
 	};
-
     }
 }
 
@@ -787,26 +776,27 @@ sub print_reports
 
     foreach my $t (@trades)
     {
-	$curr_to_balance{$t->{curr}} = $ZERO unless defined $curr_to_balance{$t->{curr}};
 
-	if($t->{type} eq 'sell')
+	if($t->{type} eq 'trade')
 	{
-	    $curr_to_balance{$t->{curr}} -= $t->{amt} + $t->{expense};
+	    $curr_to_balance{$t->{buy_curr}} = $ZERO unless defined $curr_to_balance{$t->{buy_curr}};
+	    $curr_to_balance{$t->{sell_curr}} = $ZERO unless defined $curr_to_balance{$t->{sell_curr}};
+	    $curr_to_balance{$t->{buy_curr}} += $t->{buy_amt};
+	    $curr_to_balance{$t->{sell_curr}} += -$t->{sell_amt};
 	}
-	elsif($t->{type} eq 'transfer')
-	{
-	    $curr_to_balance{$t->{curr}} += $t->{amt};
+	else {
+	    $curr_to_balance{$t->{curr}} = $ZERO unless defined $curr_to_balance{$t->{curr}};
+	    if($t->{type} eq 'transfer')
+	    {
+		$curr_to_balance{$t->{curr}} += $t->{amt};
+	    }
+	    elsif($t->{type} eq 'income')
+	    {
+		$curr_to_balance{$t->{curr}} += $t->{amt};
+	    }
+	    else
+	    { die $t->{type};}
 	}
-	elsif($t->{type} eq 'buy')
-	{
-	    $curr_to_balance{$t->{curr}} += $t->{amt} - $t->{expense};
-	}
-	elsif($t->{type} eq 'income')
-	{
-	    $curr_to_balance{$t->{curr}} += $t->{amt};
-	}
-	else
-	{ die $t->{type};}
 
 	print "$t->{date} $t->{time} $t->{index}\n";
 	foreach my $c (sort keys %curr_to_balance)
@@ -815,8 +805,6 @@ sub print_reports
 	}
 
 	print "\n";
-
-
     }
 
     print "bal report:\n";
