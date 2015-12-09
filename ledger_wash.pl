@@ -76,6 +76,8 @@ order specified in the file(s).
     exit -1;
 }
 
+require 'util.pl';
+
 use Data::Dumper;
 
 use Getopt::Long;
@@ -221,6 +223,65 @@ our @trades; #the list of trades sent to the capital gain logic
     }
 }
 
+@trades = sort compare_date_time_index @trades;
+
+foreach $curr (keys %curr_to_price_quotes)
+{
+    $curr_to_price_quotes{$curr} =    
+	[sort compare_date_time_index @{$curr_to_price_quotes{$curr}}];
+}
+
+
+    
+use Sell;
+use Buy;
+use TradeList;
+
+$tl = new TradeList();
+
+foreach my $t (@trades)
+{
+    if($t->{type} eq 'income')
+    {
+	#TODO 2 handle this
+	next;
+    }
+    
+    my $base_val = ($t->{other_curr} eq $base_curr ? $t->{net_price} : undef)
+	||
+	figure_base_curr_price(
+	    ($t->{type} eq 'sell') ?
+	    $t->{amt} - $t->{expense}
+	    :
+	    $t->{amt} + $t->{expense},
+	    , $t->{other_curr},
+	    $t->{date}, $t->{time}, $t->{index})
+	||
+	figure_base_curr_price($t->{net_price},
+			       $t->{other_curr},
+			       $t->{date}, $t->{time}, $t->{index});
+
+    if(!defined $base_val)
+    {
+	error(file=>$t->{file}, line=>$t->{line}, tran_text => $t->{tran_text}, 
+	      msg=>"Need price for $t->{curr}, or $t->{other_curr} on $t->{date}");
+	next;
+    }
+
+    if($t->{type} eq 'sell')
+    {
+	$tl->add(new Sell(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}));
+    }
+    elsif($t->{type} eq 'buy')
+    {
+	$tl->add(new Buy(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}));
+    }
+    else {
+	die "What is $t->{type}?";
+    }
+ 
+}
+
 die "TODO: send \@trades to wash stuff";
 
 
@@ -286,7 +347,7 @@ sub balance_account_lines
 	    {
 		({ acct => $empty_account, amt => -$bal, curr => $_, price_amt => undef, price_curr => undef });
 	    }
-	    else { delete $curr_to_balance{$_}; }
+	    else { delete $curr_to_balance{$_}; (); }
 	} (sort keys %curr_to_balance);
 
 	push @res, @account_lines; #add the other lines
@@ -300,7 +361,7 @@ sub balance_account_lines
 	    #make sure all the account values balance
 	    foreach (keys %curr_to_balance)
 	    {
-		if($curr_to_balance{$_} != 0)
+		if(abs($curr_to_balance{$_}) > 0.0001)
 		{
 		    error(file=>$file, line=>$line, tran_text => $tran_text, 
 			  msg => "Non balancing currency, $_: ".$curr_to_balance{$_});
@@ -418,12 +479,16 @@ sub add_tran
 	    if $pos_expense || $neg_expense;
 	
 	
-	push @trades, { sort_by => create_sort_by($date,$time,$index),
-			type => 'buy',
-			amt => $pos_asset_amount,
-			price => 0,
-			curr => $pos_asset_currency };
-	error(file => $file, line => $line, msg => "TODO handle income transaction");
+	push @trades, { 
+		file => $file,
+		line => $line,
+		tran_text => $tran_text,
+		type => 'income',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => $pos_asset_amount,
+		curr => $pos_asset_currency };
     }
     else
     {
@@ -448,6 +513,9 @@ sub add_tran
 	if($pos_asset_currency ne $base_curr)
 	{
 	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => $tran_text,
 		type => 'buy',
 		date => $date,
 		time => $time,
@@ -459,45 +527,39 @@ sub add_tran
 		#after we are done reading the files
 		curr => $pos_asset_currency,
 
-		#value adjusting for expenses
-		total_value => ($neg_asset_currency eq $base_curr ?
-			  -($neg_asset_amount + $neg_expense)
-			  : undef)
+		#how much the transaction cost me including expenses
+		net_price => (-$neg_asset_amount + $neg_expense),
+		other_curr => $neg_asset_currency
+		    
 	    };
 	}
 	if($neg_asset_currency ne $base_curr)
 	{
 	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => $tran_text,
 		
 		type => 'sell',
 		date => $date,
 		time => $time,
 		index => $index,
-		amt => $neg_asset_amount,
+		amt => -$neg_asset_amount,
 		expense => $neg_expense,
 		#if the other side is the base currency, we use it as
 		#the cost basis, otherwise we leave it undef, to calculate
 		#after we are done reading the files
 		curr => $neg_asset_currency,
 
-		#value adjusting for expenses
-		total_value => ($pos_asset_currency eq $base_curr ?
-			  $pos_asset_amount + $pos_expense 
-			  : undef)
+		#how much I received for the sale minus expesnes
+		net_price => ($pos_asset_amount - $pos_expense),
+		other_curr => $pos_asset_currency
 	    };
 	}
+
     }
 }
 
-
-sub create_sort_by
-{
-    my ($date, $time, $index) = @_;
-
-    #note if there is no time, then there will be 2 spaces between date and index. This will make
-    #all transactions without a time the first for the day
-    return $date." ".$time." I".$index;
-}
 
 sub add_price_quote
 {
@@ -517,6 +579,82 @@ sub add_price_quote
 	};
     }
     #else ignore it, because it's not associated to our currency
+}
+
+sub binary_search {
+    my ($array_ref, $compare_func, $left, $right) = @_;
+
+    my $middle = 0;
+    while ($left <= $right) {
+	$middle = int(($right + $left) >> 1);
+	my $value = $compare_func->($array_ref->[$middle]);
+	if ($value == 0) {
+	    return $middle;
+	} elsif ($value < 0) {
+	    $right = $middle - 1;
+	} else {
+	    $left = $middle + 1;
+	}
+    }
+
+    # the index at which the key was found, or -n-1 if it was not
+    # found, where n is the index of the first value higher than key or
+    # length if there is no such value.
+    return -$middle-1;
+}
+
+sub compare_date_time_index($$)
+{
+    my ($a,$b) = @_;
+    $a->{date} cmp $b->{date} 
+    or $a->{time} cmp $b->{time} 
+    or $a->{index} cmp $b->{index};
+}
+
+sub figure_base_curr_price
+{
+    my ($amt, $curr, $date, $time, $index) = @_;
+
+    my $pq = $curr_to_price_quotes{$curr};
+
+    my $target = { date => $date,
+		   time => $time,
+		   index => $index
+    };
+
+    if (!defined $pq)
+    {
+	return undef;
+    }
+
+    my $pos = binary_search($pq, sub { compare_date_time_index($_[0], $target) } , 0, $#{$pq});
+
+    if($pos >= 0)
+    {
+	die "Why is there an exact match, every row should have a unique index????";
+    }
+
+    #pos = -n-1
+    #we want n-1
+    #n = -1 -pos
+    #n - 1 = -2 -pos
+    $pos = -2-$pos;
+
+    if($pos < 0)
+    {
+	return undef;
+    }
+
+    if($pq->[$pos]->{date} ne $date)
+    {
+	$pos++;
+	if($pq->[$pos]->{date} ne $date)
+	{
+	    return undef;
+	}
+    }
+
+    return $pq->{$amt} * $amt;
 }
 
 
@@ -570,18 +708,20 @@ sub parse_amt_curr
 	return undef;
     }
 
-    #convert $amt to a bigfloat with specified precision
-    my $precision = 0;
+    # co: this would make all operations round to the given precision, which would
+    # be bad
+    # #convert $amt to a bigfloat with specified precision
+    # my $precision = 0;
     
-    if($amt =~ /\.(.*)/)
-    {
-	$precision = -(length $1);
-    }
+    # if($amt =~ /\.(.*)/)
+    # {
+    # 	$precision = -(length $1);
+    # }
 
-    use Math::BigFloat;
+    # use Math::BigFloat;
 
-    $amt = Math::BigFloat->new($amt);
-    $amt->precision($precision);
+    # $amt = Math::BigFloat->new($amt);
+    # $amt->precision($precision);
 
     return ($amt, $curr);
     
