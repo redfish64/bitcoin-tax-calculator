@@ -14,7 +14,29 @@ sub testConvertTextToDays
     }
 }
 
-#converts the days to mm/dd/yyyy
+#converts epoch seconds to a textual date
+sub convertSecondsToText
+{
+    my ($date_seconds) = @_;
+    $date = 
+	($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = 
+	gmtime($date_seconds);
+    $mon ++; # add 1 to month, returned in format (0..11)
+    $year += 1900; 
+    
+    if(length $mon == 1) {
+	$mon = "0".$mon;
+    }
+    if(length $mday == 1) {
+	$mday = "0".$mday;
+    }
+    if(length $year == 1) {
+	$year = "0".$year;
+    }
+    $date = "$year-$mon-$mday";
+}
+
+#converts the days to yyyy/mm/dd
 sub convertDaysToText
 {
 	my $date_days = shift;
@@ -22,23 +44,7 @@ sub convertDaysToText
 	my ($date,$sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
 
 	if ($date_seconds != 0) {
-	    $date = 
-		($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = 
-		    gmtime($date_seconds);
-	    $mon ++; # add 1 to month, returned in format (0..11)
-	    $year += 1900; 
-	    
-	    if(length $mon == 1) {
-		$mon = "0".$mon;
-	    }
-	    if(length $mday == 1) {
-		$mday = "0".$mday;
-	    }
-	    if(length $year == 1) {
-		$year = "0".$year;
-	    }
-	    $date = "$mon-$mday-$year";
-
+	    $date = convertSecondsToText($date_seconds);
 	}
 	
 	return $date;
@@ -109,5 +115,11 @@ sub about_equal
     return 1; #about equal
 }
 
+sub bigrat
+{
+    return new Math::BigRat($_[0]) if defined $_[0];
+
+    return undef;
+}
 
 1;

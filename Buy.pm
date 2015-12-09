@@ -30,9 +30,9 @@ use Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $symbol) = @_;
+    my ($class, $date, $shares, $price, $symbol, $refs) = @_;
     
-    $self = Trade::new($class, $date, $shares, $price, $symbol);
+    $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);
     $self->{'gets_basis'} = 0;
 
     $self;
@@ -67,7 +67,7 @@ sub split
 
     #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
     my $splitBuy = new Buy($self->{'date'}, $otherShares, $otherPrice,
-			   $self->{'symbol'});
+			   $self->{'symbol'}, $self->{refs});
 
     #if there is a splitSell, we use it
     $splitBuy->{'sell'} = $splitSell;

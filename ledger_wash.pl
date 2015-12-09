@@ -91,11 +91,12 @@ my ($assets_reg,
 GetOptions ("assets=s" => \$assets_reg,    
 	    "income=s"   => \$income_reg,  
 	    "expenses=s"  => \$expenses_reg,
-	    "accuracy=i"  => \$accuracy,
 	    "basecurr=s" => \$base_curr)
     or die("Error in command line arguments\n");
 
-use bignum('a',$accuracy);
+use Math::BigRat;
+
+$ZERO = new Math::BigRat(0);
 
 use IO::File;
 
@@ -157,17 +158,20 @@ our @trades; #the list of trades sent to the capital gain logic
 
 	    if($curr_text =~ /^P/) # price quote
 	    {
+
 		#P 2015-04-29 BTC $224.16
 		my ($date,$time,$curr, $amt_curr) = 
 		    $curr_text =~ 
 		    /^P (${date_reg})(?:\s+(${time_reg}))?\s+(${curr_reg})\s+(${amt_curr_reg})$/
 		    or error(msg => "Can't read price quote");
 
+		$date = normalize_date($date);
 		$time = "00:00:00" if !defined $time;
 
 		add_price_quote($date,$time,$tran_index,
 				$curr, parse_amt_curr($amt_curr));
 		
+		$tran_index++;
 	    }
 	    elsif($curr_text =~ /^account .*/) # account command, ignore
 	    {
@@ -189,6 +193,7 @@ our @trades; #the list of trades sent to the capital gain logic
 
 		($date,$time,$desc) = $curr_text =~ /^(${date_reg})(?:\s+(${time_reg}))?\s+(.*)/ 
 		    or error(txt=>$curr_text, msg => "Can't parse datetime, must be YYYY-MM-DD or YYYY-MM-DD hh:mm:ss");
+		$date = normalize_date($date);
 		$time = "00:00:00" if !defined $time;
 		
 		next;
@@ -209,8 +214,8 @@ our @trades; #the list of trades sent to the capital gain logic
 
 		my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
 
-		push @account_lines, { acct => $account, amt => $amt, 
-				       curr => $curr, price_amt => $price_amt,
+		push @account_lines, { acct => $account, amt => bigrat($amt), 
+				       curr => $curr, price_amt => bigrat($price_amt),
 				       price_curr => $price_curr
 		};
 		
@@ -231,7 +236,9 @@ foreach $curr (keys %curr_to_price_quotes)
 	[sort compare_date_time_index @{$curr_to_price_quotes{$curr}}];
 }
 
+print_reports();
 
+die;
     
 use Sell;
 use Buy;
@@ -254,7 +261,7 @@ foreach my $t (@trades)
 	    $t->{amt} - $t->{expense}
 	    :
 	    $t->{amt} + $t->{expense},
-	    , $t->{other_curr},
+	    , $t->{curr},
 	    $t->{date}, $t->{time}, $t->{index})
 	||
 	figure_base_curr_price($t->{net_price},
@@ -270,17 +277,23 @@ foreach my $t (@trades)
 
     if($t->{type} eq 'sell')
     {
-	$tl->add(new Sell(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}));
+	$tl->add(new Sell(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}, [$t]));
     }
     elsif($t->{type} eq 'buy')
     {
-	$tl->add(new Buy(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}));
+	$tl->add(new Buy(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}, [$t]));
     }
     else {
 	die "What is $t->{type}?";
     }
  
 }
+
+$tl->checkWashesAndAssignBuysToSells;
+$trades->print;
+print "------------------------------------\n";
+$trades->printIRS;
+print "------------------------------------\n";
 
 die "TODO: send \@trades to wash stuff";
 
@@ -422,7 +435,7 @@ sub add_tran
     #figure out the currency types on each side of the transaction
     #and the amounts
     my ($pos_asset_currency, $pos_asset_amount,
-	$neg_asset_currency, $neg_asset_amount) = (undef, 0, undef, 0);
+	$neg_asset_currency, $neg_asset_amount) = (undef, $ZERO, undef, $ZERO);
 
     foreach (@account_lines)
     { 
@@ -482,7 +495,7 @@ sub add_tran
 	push @trades, { 
 		file => $file,
 		line => $line,
-		tran_text => $tran_text,
+		tran_text => [@$tran_text],
 		type => 'income',
 		date => $date,
 		time => $time,
@@ -492,16 +505,60 @@ sub add_tran
     }
     else
     {
-	if((!defined $pos_asset_currency) || (!defined $neg_asset_currency))
+	if((!defined $pos_asset_currency))
 	{
+	   
+	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => [@$tran_text],
+		type => 'transfer',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => $neg_asset_amount,
+		curr => $neg_asset_currency,
+	    };
+	    
 	    #we only care about internal (asset to asset) transactions. If the money is being sent/received
-	    #somewhere else, its not 
+	    #somewhere else, its not taxable
+	    return;
+	}
+	if((!defined $neg_asset_currency))
+	{
+	   
+	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => [@$tran_text],
+		type => 'transfer',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => $pos_asset_amount,
+		curr => $pos_asset_currency,
+	    };
+	    
+	    #we only care about internal (asset to asset) transactions. If the money is being sent/received
+	    #somewhere else, its not taxable
 	    return;
 	}
 	
 	#if an internal transfer from one asset account to another
 	if($pos_asset_currency eq $neg_asset_currency)
 	{
+	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => [@$tran_text],
+		type => 'transfer',
+		date => $date,
+		time => $time,
+		index => $index,
+		amt => - ($pos_expense + $neg_expense),
+		curr => $pos_asset_currency,
+	    };
+	    
 	    #fees from transferring funds around are not deductable AFAIK
 	    #http://www.beansmart.com/taxes/are-wire-transfer-cost-deductible-20873-.htm
 	    #so we ignore it
@@ -510,52 +567,46 @@ sub add_tran
 	
 	my ($pos_expense, $neg_expense) = (0,0);	
 
-	if($pos_asset_currency ne $base_curr)
-	{
-	    push @trades, {
-		file => $file,
-		line => $line,
-		tran_text => $tran_text,
-		type => 'buy',
-		date => $date,
-		time => $time,
-		index => $index,
-		amt => $pos_asset_amount,
-		expense => $pos_expense,
-		#if the other side is the base currency, we use it as
-		#the cost basis, otherwise we leave it undef, to calculate
-		#after we are done reading the files
-		curr => $pos_asset_currency,
-
-		#how much the transaction cost me including expenses
-		net_price => (-$neg_asset_amount + $neg_expense),
-		other_curr => $neg_asset_currency
-		    
-	    };
-	}
-	if($neg_asset_currency ne $base_curr)
-	{
-	    push @trades, {
-		file => $file,
-		line => $line,
-		tran_text => $tran_text,
+	push @trades, {
+	    file => $file,
+	    line => $line,
+	    tran_text => [@$tran_text],
+	    type => 'buy',
+	    date => $date,
+	    time => $time,
+	    index => $index,
+	    amt => $pos_asset_amount,
+	    expense => $pos_expense,
+	    #if the other side is the base currency, we use it as
+	    #the cost basis, otherwise we leave it undef, to calculate
+	    #after we are done reading the files
+	    curr => $pos_asset_currency,
+	    
+	    #how much the transaction cost me including expenses
+	    net_price => (-$neg_asset_amount + $neg_expense),
+	    other_curr => $neg_asset_currency
 		
-		type => 'sell',
-		date => $date,
-		time => $time,
-		index => $index,
-		amt => -$neg_asset_amount,
-		expense => $neg_expense,
-		#if the other side is the base currency, we use it as
-		#the cost basis, otherwise we leave it undef, to calculate
-		#after we are done reading the files
-		curr => $neg_asset_currency,
-
-		#how much I received for the sale minus expesnes
-		net_price => ($pos_asset_amount - $pos_expense),
-		other_curr => $pos_asset_currency
-	    };
-	}
+	};
+	push @trades, {
+	    file => $file,
+	    line => $line,
+	    tran_text => [@$tran_text],
+	    
+	    type => 'sell',
+	    date => $date,
+	    time => $time,
+	    index => $index,
+	    amt => -$neg_asset_amount,
+	    expense => $neg_expense,
+	    #if the other side is the base currency, we use it as
+	    #the cost basis, otherwise we leave it undef, to calculate
+	    #after we are done reading the files
+	    curr => $neg_asset_currency,
+	    
+	    #how much I received for the sale minus expesnes
+	    net_price => ($pos_asset_amount - $pos_expense),
+	    other_curr => $pos_asset_currency
+	};
 
     }
 }
@@ -575,7 +626,7 @@ sub add_price_quote
 	    time => $time,
 	    index => $index,
 	    curr => $curr,
-	    amt => $amt,
+	    amt => bigrat($amt),
 	};
     }
     #else ignore it, because it's not associated to our currency
@@ -627,7 +678,7 @@ sub figure_base_curr_price
 	return undef;
     }
 
-    my $pos = binary_search($pq, sub { compare_date_time_index($_[0], $target) } , 0, $#{$pq});
+    my $pos = binary_search($pq, sub { compare_date_time_index($target, $_[0]) } , 0, $#{$pq});
 
     if($pos >= 0)
     {
@@ -654,7 +705,7 @@ sub figure_base_curr_price
 	}
     }
 
-    return $pq->{$amt} * $amt;
+    return $pq->[$pos]->{amt} * $amt;
 }
 
 
@@ -727,3 +778,61 @@ sub parse_amt_curr
     
 }
 
+#check balance
+sub print_reports
+{
+    my %curr_to_balance;
+
+    print "reg report:\n";
+
+    foreach my $t (@trades)
+    {
+	$curr_to_balance{$t->{curr}} = $ZERO unless defined $curr_to_balance{$t->{curr}};
+
+	if($t->{type} eq 'sell')
+	{
+	    $curr_to_balance{$t->{curr}} -= $t->{amt} + $t->{expense};
+	}
+	elsif($t->{type} eq 'transfer')
+	{
+	    $curr_to_balance{$t->{curr}} += $t->{amt};
+	}
+	elsif($t->{type} eq 'buy')
+	{
+	    $curr_to_balance{$t->{curr}} += $t->{amt} - $t->{expense};
+	}
+	elsif($t->{type} eq 'income')
+	{
+	    $curr_to_balance{$t->{curr}} += $t->{amt};
+	}
+	else
+	{ die $t->{type};}
+
+	print "$t->{date} $t->{time} $t->{index}\n";
+	foreach my $c (sort keys %curr_to_balance)
+	{
+	    print "   $c ".$curr_to_balance{$c}->as_float()."\n";
+	}
+
+	print "\n";
+
+
+    }
+
+    print "bal report:\n";
+
+    foreach my $c (sort keys %curr_to_balance)
+    {
+	print "   $c ".$curr_to_balance{$c}->as_float()."\n";
+    }
+    
+}
+
+sub normalize_date
+{
+    my ($date) = @_;
+
+    my ($y,$m,$d) = $date =~ /(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/ or die;
+
+    return sprintf('%04d-%02d-%02d',$y,$m,$d);
+}

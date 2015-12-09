@@ -25,10 +25,12 @@ package Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $symbol) = @_;
+    my ($class, $date, $shares, $price, $symbol, $refs) = @_;
+
+    die unless ref $refs eq 'ARRAY';
     
     $self = { date => $date, shares => $shares, price =>$price, symbol => $symbol,
-	  block => {}};
+	  block => {}, refs => $refs};
 
     bless $self, $class;
 }
@@ -45,6 +47,8 @@ sub combine
 
     $self->{'shares'} += $other->{'shares'};
     $self->{'price'} += $other->{'price'};
+
+    push @{$self->{refs}}, @{$other->{refs}};
 
     return 1; #combined successfully
 }

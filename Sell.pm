@@ -31,9 +31,9 @@ use Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $symbol) = @_;
+    my ($class, $date, $shares, $price, $symbol, $refs) = @_;
     
-    $self = Trade::new($class, $date, $shares, $price, $symbol);
+    $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);
 
     $self->init();
 
@@ -63,7 +63,7 @@ sub split
 
     #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
     my $splitSell = new Sell($self->{'date'}, $otherShares, $otherPrice,
-			   $self->{'symbol'});
+			   $self->{'symbol'}, $self->{refs});
 
     $splitSell->{'washBuy'} = $washBuySplit;
 
@@ -115,7 +115,9 @@ sub toString
 	$s .= &main::convertDaysToText($buy->{'date'})." ";
     }
     $s .= "\n";
-    $s .= "    gain is ".$self->getGain()."\n";
+    if($self->{'buy'}){
+	$s .= "    gain is ".$self->getGain()."\n";
+    }
 
     return $s;
 }
@@ -138,7 +140,7 @@ sub toWashString
 	$s = "wash";
     }
 
-    if($self->{'buy'}->{'washSell'})
+    if($self->{'buy'} && $self->{'buy'}->{'washSell'})
     {
 	my $ws = $self->{'buy'}->{'washSell'};
 
