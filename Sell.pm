@@ -109,12 +109,6 @@ sub toString
 
     $s = Trade::toString($self);
 
-    $s.="   first buys: ";
-    foreach $buy (@{$self->{'buys'}})
-    {
-	$s .= &main::convertDaysToText($buy->{'date'})." ";
-    }
-    $s .= "\n";
     if($self->{'buy'}){
 	$s .= "    gain is ".$self->getGain()."\n";
     }

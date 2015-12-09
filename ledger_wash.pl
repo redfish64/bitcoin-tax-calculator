@@ -236,9 +236,9 @@ foreach $curr (keys %curr_to_price_quotes)
 	[sort compare_date_time_index @{$curr_to_price_quotes{$curr}}];
 }
 
-print_reports();
+#print_reports();
 
-die;
+#die;
     
 use Sell;
 use Buy;

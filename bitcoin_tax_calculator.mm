@@ -145,5 +145,23 @@
 </node>
 </node>
 </node>
+<node CREATED="1449659835726" ID="ID_527848386" MODIFIED="1449659837169" POSITION="right" TEXT="plan2">
+<node CREATED="1449659838948" ID="ID_1796520925" MODIFIED="1449659856816" TEXT="we convert everything into the wash format, this means adding transfers to wash"/>
+<node CREATED="1449659857301" ID="ID_1827757689" MODIFIED="1449659902376">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      After assigning buys to sells, etc. make sure when we total everything up, we get the right balance
+    </p>
+  </body>
+</html>
+</richcontent>
+</node>
+<node CREATED="1449659903325" ID="ID_466455675" MODIFIED="1449659943762" TEXT="Then we make sure that the unassigned buys + transfers equals balance"/>
+<node CREATED="1449659944341" ID="ID_1197774940" MODIFIED="1449659967737" TEXT="Or just check that all assigned buys and sells add up to zero"/>
+</node>
 </node>
 </map>

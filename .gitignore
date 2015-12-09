@@ -1,0 +1,61 @@
+# Unix
+
+*.o
+*.d
+
+# Windows
+
+*.res
+
+# OSX
+
+.DS_Store
+
+# Qt
+
+*.qrc.cpp
+*.qm
+ui_*.h
+*.moc
+
+# Editors
+
+*~
+.#*
+\#*#
+
+# Binaries & Generated files
+
+/src/core
+
+/src/constants.test.cpp
+/src/build.h
+/src/*.qt.cpp
+
+/src/.make.cxxflags
+/src/.make.ldflags
+
+/src/nomiccoind
+/src/nomiccoin-qt
+
+/src/nomiccoind.exe
+/src/nomiccoin-qt.exe
+
+/src/nomiccoin-qt.app
+/src/nomiccoin-qt.dmg
+
+/share/pixmaps
+
+#test stuff
+/test/nomiccoin?
+/test/nomiccoin.conf
+/test/debug.log
+
+# other junk
+cscope.out
+TAGS
+
+#eclipse stuff
+/.cproject
+/.project
+/Debug/
