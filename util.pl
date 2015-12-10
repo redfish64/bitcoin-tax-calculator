@@ -122,4 +122,10 @@ sub bigrat
     return undef;
 }
 
+
+sub format_amt
+{
+    return sprintf("%12.6f",shift->as_float());
+}
+
 1;

@@ -246,9 +246,18 @@ foreach $curr (keys %curr_to_price_quotes)
 #print_csv();
 
 
-print_reports();
+#print_reports();
 
 create_tax_items();
+
+$tl->checkWashesAndAssignBuysToSells;
+
+$tl->print;
+#print "------------------------------------\n";
+#$tl->printIRS;
+#print "------------------------------------\n";
+
+
 
 
 sub create_tax_items
@@ -285,23 +294,27 @@ sub create_tax_items
 	    # 	      msg => "Can't determine base val for $amt $curr fee. Marking as an unreported sell");
 	    # }
 
-	    $tl->add(new Sell(&main::convertTextToDays($date), $amt, $base_val,$t->{curr}, [$t],
-			      #!defined $base_val
-			      1
-		     )
-		);
+	    if($amt != 0 && $t->{curr} ne $base_curr)
+	    {
+		$tl->add(new Sell(&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
+				  #!defined $base_val
+				  1
+			 )
+		    );
+	    }
 	}
 	elsif($t->{type} eq 'trade')
 	{
 	    my ($buy_base_val, $sell_base_val) = figure_trade_base_vals($t);
+
 	    my ($buy_amt, $buy_curr, $sell_amt, $sell_curr) 
 		= hv_to_a(undef,$t,qw { buy_amt buy_curr sell_amt sell_curr });
 
-	    if($buy_amt != 0)
+	    if($buy_amt != 0 && $buy_curr ne $base_curr)
 	    {
 		$tl->add(new Buy(&main::convertTextToDays($date), $buy_amt, $buy_base_val,$buy_curr, [$t]));
 	    }
-	    if($sell_amt != 0)
+	    if($sell_amt != 0 && $sell_curr ne $base_curr)
 	    {
 		$tl->add(new Sell(&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t]));
 	    }
@@ -331,7 +344,7 @@ sub create_tax_items
 	    #first create a buy for 0 (since we acquired it through normal means, such as mowing lawns,
 	    # etc., and according to the IRS your man-hours are worth *nothing*, as further demonstrated 
 	    # by the incredible complexity and vagueness of the tax rules)
-	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, 0, $curr, [$t]));
+	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $ZERO, $curr, [$t]));
 
 	    #sell it at market price to report the gains
 	    $tl->add(new Sell(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
@@ -343,17 +356,10 @@ sub create_tax_items
 	    die "What is $t->{type}?";
 	}
     }
+
+    print STDERR (scalar @trades)." trades creating ".(scalar @{$tl->{list}})." items\n";
  
 }
-
-die "TODO: send \@trades to wash stuff";
-
-$tl->checkWashesAndAssignBuysToSells;
-$trades->print;
-print "------------------------------------\n";
-$trades->printIRS;
-print "------------------------------------\n";
-
 
 
 #utility to convert a hash to an array sorted by keys
@@ -756,10 +762,14 @@ sub figure_base_curr_price
     };
     
 
-    $search->($pos, -1, $base_curr_test) 
-	or $search->($pos+1, 1, $base_curr_test) 
-	or $search->($pos, -1, $other_curr_test) 
-	or $search->($pos+1, 1, $other_curr_test) ;
+    my $res = $search->($pos, -1, $base_curr_test) 
+	|| $search->($pos+1, 1, $base_curr_test) 
+	|| $search->($pos, -1, $other_curr_test) 
+	|| $search->($pos+1, 1, $other_curr_test) ;
+
+    $res = undef if (defined $res) && $res eq '';
+
+    return $res;
 }
 
 
@@ -956,19 +966,8 @@ sub figure_trade_base_vals
     
     if($sell_curr eq $base_curr)
     {
-	#here is where expenses come into play. Normally when we trade two currencies
-	#we use the fair market value of each (expenses won't affect this, because
-	# they are subtracted out beforehand)
-	#however, if we are trading one currency for the base currency (effectively
-	# "buying" or "selling" it), we use it as the price we sold/bought the other 
-	# currency at. We use the expenses to determine the effective base price to do this
-	#
-	# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
-	# for this transaction. So the total cost is $30, and we received $10 of value.
-	# The expenses store this $20 fee.
-	# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
-	# base value of $10.
-
+	figure_trade_base_val_from_other_side('S', $t);
+	------
 	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
 						       $buy_amt, $buy_curr, $sell_amt);
 
@@ -1002,6 +1001,9 @@ sub figure_trade_base_vals
 	    || $expense_curr eq $base_curr &&
 	    (defined ($_ = figure_base_curr_price($sell_amt, $sell_curr, $date, $time, $index)))
 	    && ($_ + $expense_amt);
+
+	$buy_base_val = undef unless $buy_base_val ne '';
+
 	$sell_base_val = 
 	     figure_base_curr_price($sell_amt, $sell_curr, $date, $time, $index)
 	     || $expense_curr eq $buy_curr &&
@@ -1009,6 +1011,8 @@ sub figure_trade_base_vals
 	     || $expense_curr eq $base_curr &&
 	     (defined ($_ = figure_base_curr_price($buy_amt, $buy_curr, $date, $time, $index)))
 	     && ($_ - $expense_amt);
+
+	$sell_base_val = undef unless $sell_base_val ne '';
     }
 
     (defined $buy_base_val) or
@@ -1046,4 +1050,28 @@ sub figure_expense_base_amt
     }
 
     return undef;
+}
+
+
+#figures the trade base val for both sides of equation by using the calculated value and expense
+#of one side to determine the calculate d
+sub figure_trade_base_val_from_other_side
+{
+    my ($type, $t) = @_;
+
+    if($type eq 'S')
+    {
+#here is where expenses come into play. Normally when we trade two currencies
+#we use the fair market value of each (expenses won't affect this, because
+# they are subtracted out beforehand)
+#however, if we are trading one currency for the base currency (effectively
+# "buying" or "selling" it), we use it as the price we sold/bought the other 
+# currency at. We use the expenses to determine the effective base price to do this
+#
+# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
+# for this transaction. So the total cost is $30, and we received $10 of value.
+# The expenses store this $20 fee.
+# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
+# base value of $10.
+	{
 }

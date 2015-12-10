@@ -27,6 +27,10 @@ sub new
 {
     my ($class, $date, $shares, $price, $symbol, $refs) = @_;
 
+    die unless defined $price;
+
+    die unless ref $price eq 'Math::BigRat';
+    die unless ref $shares eq 'Math::BigRat';
     die unless ref $refs eq 'ARRAY';
     
     $self = { date => $date, shares => $shares, price =>$price, symbol => $symbol,
@@ -40,6 +44,7 @@ sub combine
 {
     my($self, $other) = @_;
 
+#    print STDERR "Trying to combine $self->{symbol}, $other->{symbol}, ".$self->type.", ".$other->type."\n";
     if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type)
     {
 	return 0; #unable to combine
@@ -58,8 +63,8 @@ sub toString
     my ($self) = @_;
 
     &main::convertDaysToText($self->{'date'}).
-	"\t".$self->{'symbol'}."\t".$self->type."\t".$self->{'shares'}.
-	"\t".$self->{'price'}."\t".$self->toWashString;
+	"\t".$self->{'symbol'}."\t".$self->type."\t".main::format_amt($self->{'shares'}->as_float()).
+	"\t".main::format_amt($self->{'price'})."\t".$self->toWashString;
 }
 
 

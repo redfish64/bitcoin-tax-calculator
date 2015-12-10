@@ -56,20 +56,35 @@ sub add
     my ($self, $trade) = @_;
 
     my $list = $self->{'list'};
- 
-    #if there were previous trades
-    if($#{$list} >= 0)
-    {
-	#try to combine the trade with the previous one
-	my $otherTrade = $list->[$#{$list}];
 
-	#try to combine trades together
-	if($otherTrade->combine($trade))
+    #try to combine with previous trades
+    $pos = $#{$list};
+
+    while($pos >= 0)
+    {
+	my $otherTrade = $list->[$pos];
+
+	#if it was on the same day and there aren't any intervening opposite transactions
+	#(ie buy for sell, sell for buy)
+	if($otherTrade->{date} eq $trade->{date})
 	{
-	    #if we successfully combined it with another trade, we're done
-	    return;
+	    if($otherTrade->combine($trade))
+	    {
+		#if we successfully combined it with another trade, we're done
+		return;
+	    }
+
+	    if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
+	    {
+		last;
+	    }
+	}
+	else  #other trade
+	{
+	    last;
 	}
 
+	$pos--;
     }
 
     #we have to add it to the end of the list
@@ -88,18 +103,22 @@ sub checkWashesAndAssignBuysToSells
     #NOTE, this uses FIFO method for allocating shares
 
 #1. Find each sell in chronological order
-#For each sell,
+    #For each sell,
+
+    print STDERR "Matching sells to buys, FIFO\n";
+    
     for($j = 0; $j < (@{$list}); $j++)
     {
+	$j % 50 == 0 and print STDERR "$j out of ".($#{$list}+1)." sells ... (may grow due to splitting lows)\n";
+	
 	my $sell = $list->[$j];
 
 	#if the trade is a sell
 	if($sell->type eq "sell" && !(defined $sell->{'buy'}))
 	{
-	    #we need to determine if it's a wash
-	    
-#2. Find first buy which has not been allocated as a "first buy" for any sell. This buy becomes "First Buy" for this sell
-#   Continue this process until all shares of the sells have a "first buy". Last buy may have to be split into two buys.
+#2. Find first buy which has not been allocated as a buy for any sell. 
+#   Continue this process until all shares of the sells have a buy. Last buy may have to be split 
+#   into two buys.
 	    my $buy;
 
 	    #if shares weren't already allocated(they may be allocated if
@@ -108,7 +127,7 @@ sub checkWashesAndAssignBuysToSells
 	    {
 		$buy = $list->[$i];
 		
-		#if buy is the same symbol as sell and hasn't already been allocated as a first buy
+		#if buy is the same symbol as sell and hasn't already been allocated as a buy for another sell
 		if($buy->type eq "buy" && $buy->{'symbol'} eq $sell->{'symbol'} && !(defined $buy->{'sell'}))
 		{
 		    if($buy->{'shares'} > $sell->{'shares'})
@@ -134,8 +153,12 @@ sub checkWashesAndAssignBuysToSells
 	}
     }
 
+    print STDERR "Identifying wash sales\n";
+    
      for($j = 0; $j < (@{$list}); $j++)
      {
+	 $j % 50 == 0 and print STDERR "$j out of ".($#{$list}+1)." sells ... (and growing)\n";
+	 
 	my $sell = $list->[$j];
    
 	if($sell->type eq "sell" && !$sell->{'washBuy'})
@@ -178,7 +201,7 @@ sub checkWashesAndAssignBuysToSells
 			}
 			
 			$buy->markAsWash($self, $sell);
-			
+
 			last;
 		    }
 		} #for each trade in list
@@ -197,7 +220,7 @@ sub print
     my $currentDate = 0;
     my $btc_balance = 0;
 
-    print "Date\tSymbol\tType\tShares\tPrice\tShare Price\tIs Wash?\tBTC Running Balance\tUSD Running Balance";
+    print "Date\tSymbol\tType\tShares\tPrice\tShare Price\tIs Wash?\tBTC Running Balance\tUSD Running Balance\n";
     
     foreach $trade (@{$self->{'list'}})
     {

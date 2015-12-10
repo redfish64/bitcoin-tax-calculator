@@ -110,7 +110,7 @@ sub toString
     $s = Trade::toString($self);
 
     if($self->{'buy'}){
-	$s .= "    gain is ".$self->getGain()."\n";
+	$s .= "    gain is ".main::format_amt($self->getGain())."\n";
     }
 
     return $s;
@@ -143,7 +143,7 @@ sub toWashString
 	    $s .= ", ";
 	}
 
-	$s .= "basis offset by ".$ws->getGain()." for wash sale on "
+	$s .= "basis offset by ".main::format_amt($ws->getGain())." for wash sale on "
 	    .&main::convertDaysToText($ws->{'date'});
     }
 
@@ -164,13 +164,13 @@ sub toIRSString
 	
     my $buyDate = &main::convertDaysToText($buy->{'date'});
     
-    my $s = $shares."\t".$self->{'symbol'}."\t".$sellPrice.
+    my $s = main::format_amt($shares)."\t".$self->{'symbol'}."\t".main::format_amt($sellPrice).
 	"\t".&main::convertDaysToText($self->{'date'})."\t".
-	$buyPrice."\t".$buyDate."\t".($self->toWashString)."\t".($sellPrice - $buyPrice)."\n";
+	main::format_amt($buyPrice)."\t".$buyDate."\t".($self->toWashString)."\t".main::format_amt($sellPrice - $buyPrice)."\n";
 
     if($self->isWash)
     {
-	$s.="\t\t\t\t\t\t\t".($buyPrice-$sellPrice)."\n";
+	$s.="\t\t\t\t\t\t\t".main::format_amt($buyPrice-$sellPrice)."\n";
     }
 
     $s;

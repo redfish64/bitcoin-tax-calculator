@@ -156,7 +156,7 @@ sub toWashString
 
     if($self->isWash)
     {
-	return &main::convertDaysToText($self->{'washSell'}->{'date'})."\t".$self->{'washSell'}->{'shares'};
+	return &main::convertDaysToText($self->{'washSell'}->{'date'})."\t".main::format_amt($self->{'washSell'}->{'shares'});
     }
 
     return "";
