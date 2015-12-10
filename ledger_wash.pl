@@ -182,7 +182,7 @@ our @trades; #the list of trades sent to the capital gain logic
 		#2013/05/15 01:29:42 * TID 1368581382704406
 		#add previous tran if any to db
 		add_tran($date,$time, $tran_index, $desc, 
-			 $curr_tran_line, $curr_tran_file, \@curr_tran_text, @account_lines);
+			 $curr_tran_line, $curr_tran_file, [@curr_tran_text], @account_lines);
 
 		$tran_index++;
 		$curr_tran_line = $curr_line;
@@ -214,9 +214,12 @@ our @trades; #the list of trades sent to the capital gain logic
 
 		my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
 
-		push @account_lines, { acct => $account, amt => bigrat($amt), 
-				       curr => $curr, price_amt => bigrat($price_amt),
-				       price_curr => $price_curr
+		#push all lines except those with a specified zero value,ex:
+		# Assets:xxxx     0.0000 ETH
+		$amt_curr && $amt == 0 or
+		    push @account_lines, { acct => $account, amt => bigrat($amt), 
+					   curr => $curr, price_amt => bigrat($price_amt),
+					   price_curr => $price_curr
 		};
 		
 		push @curr_tran_text, $curr_text;
@@ -228,7 +231,7 @@ our @trades; #the list of trades sent to the capital gain logic
 	}
 
 	add_tran($date, $time, $tran_index, $desc, $curr_tran_line, $curr_tran_file,
-		 \@curr_tran_text, @account_lines);
+		 [@curr_tran_text], @account_lines);
     }
 }
 
@@ -245,56 +248,105 @@ foreach $curr (keys %curr_to_price_quotes)
 
 print_reports();
 
-die;
-    
-use Sell;
-use Buy;
-use TradeList;
+create_tax_items();
 
-$tl = new TradeList();
 
-foreach my $t (@trades)
+sub create_tax_items
 {
-    if($t->{type} eq 'income')
-    {
-	#TODO 2 handle this
-	next;
-    }
+
+    use Sell;
+    use Buy;
+    use TradeList;
     
-    my $base_val = ($t->{other_curr} eq $base_curr ? $t->{net_price} : undef)
-	||
-	figure_base_curr_price(
-	    ($t->{type} eq 'sell') ?
-	    $t->{amt} - $t->{expense}
-	    :
-	    $t->{amt} + $t->{expense},
-	    , $t->{curr},
-	    $t->{date}, $t->{time}, $t->{index})
-	||
-	figure_base_curr_price($t->{net_price},
-			       $t->{other_curr},
-			       $t->{date}, $t->{time}, $t->{index});
+    $tl = new TradeList();
+    
+    foreach my $t (@trades)
+    {
+	my ($file,$line,$tran_text,$date,$time,$index) = hv_to_a(undef,$t,qw { file line tran_text date time index });
+	    
+	if($t->{type} eq 'transfer')
+	{
+	    my $amt = $t->{amt};
+	    my $curr = $t->{curr};
+	    my $base_val = figure_base_curr_price($amt, $curr, $date,$time,$index);
 
-    if(!defined $base_val)
-    {
-	error(file=>$t->{file}, line=>$t->{line}, tran_text => $t->{tran_text}, 
-	      msg=>"Need price for $t->{curr}, or $t->{other_curr} on $t->{date}");
-	next;
-    }
+	    if($amt > 0)
+	    {
+		error(file=>$file, line=>$line, tran_text => $tran_text, type=>'WARN',
+		      msg => "Positive inflow for a transfer (non income transaction)");
+	    }
 
-    if($t->{type} eq 'sell')
-    {
-	$tl->add(new Sell(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}, [$t]));
-    }
-    elsif($t->{type} eq 'buy')
-    {
-	$tl->add(new Buy(&main::convertTextToDays($t->{date}), $t->{amt}, $base_val,$t->{curr}, [$t]));
-    }
-    else {
-	die "What is $t->{type}?";
+	    #co: forget the fees, it's pennies
+	    # if(!defined $base_val)
+	    # {
+	    # 	#I believe even the fee technically must be reported, because it is a service
+	    # 	#exchange used to transfer funds, but it's so tiny, that we allow it to be unreported
+	    # 	error(file=>$file, line=>$line, tran_text => $tran_text, type=>'WARN',
+	    # 	      msg => "Can't determine base val for $amt $curr fee. Marking as an unreported sell");
+	    # }
+
+	    $tl->add(new Sell(&main::convertTextToDays($date), $amt, $base_val,$t->{curr}, [$t],
+			      #!defined $base_val
+			      1
+		     )
+		);
+	}
+	elsif($t->{type} eq 'trade')
+	{
+	    my ($buy_base_val, $sell_base_val) = figure_trade_base_vals($t);
+	    my ($buy_amt, $buy_curr, $sell_amt, $sell_curr) 
+		= hv_to_a(undef,$t,qw { buy_amt buy_curr sell_amt sell_curr });
+
+	    if($buy_amt != 0)
+	    {
+		$tl->add(new Buy(&main::convertTextToDays($date), $buy_amt, $buy_base_val,$buy_curr, [$t]));
+	    }
+	    if($sell_amt != 0)
+	    {
+		$tl->add(new Sell(&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t]));
+	    }
+	}
+	elsif($t->{type} eq 'income')
+	{
+	    my ($amt, $curr) 
+		= hv_to_a(undef,$t,qw { amt curr });
+
+	    if($curr eq $base_curr)
+	    {
+		error(file => $file, line => $line, tran_text => $tran_text, type => "WARN", msg => "We don't report income of $base_curr as capital gains, so it won't be included in the report");
+
+	    }
+
+	    my $base_val = figure_base_curr_price($amt, $curr, $date, $time, $index);
+
+	    if(!defined $base_val)
+	    {
+		#I believe even the fee technically must be reported, because it is a service
+		#exchange used to transfer funds, but it's so tiny, that we allow it to be unreported
+		error(file=>$file, line=>$line, tran_text => $tran_text, type=>'ERROR',
+		      msg => "Can't determine base val for $amt $curr for income transaction");
+	    }
+
+	    
+	    #first create a buy for 0 (since we acquired it through normal means, such as mowing lawns,
+	    # etc., and according to the IRS your man-hours are worth *nothing*, as further demonstrated 
+	    # by the incredible complexity and vagueness of the tax rules)
+	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, 0, $curr, [$t]));
+
+	    #sell it at market price to report the gains
+	    $tl->add(new Sell(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
+
+	    #finally, rebuy it
+	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
+	}
+	else {
+	    die "What is $t->{type}?";
+	}
     }
  
 }
+
+die "TODO: send \@trades to wash stuff";
 
 $tl->checkWashesAndAssignBuysToSells;
 $trades->print;
@@ -302,21 +354,22 @@ print "------------------------------------\n";
 $trades->printIRS;
 print "------------------------------------\n";
 
-die "TODO: send \@trades to wash stuff";
 
 
 #utility to convert a hash to an array sorted by keys
 sub hv_to_a
 {
-    my ($size, $hash) = @_;
+    my ($size, $hash, @fields) = @_;
 
-    if($size != (keys %$hash))
+    @fields = sort keys %$hash unless @fields;
+
+    if((defined $size) && $size != @fields)
     {
-	die "size $size doesn't match hash count ".(keys %$hash)." hash is ".
+	die "size $size doesn't match hash count ".@fields." hash is ".
 	    Dumper($hash);
     }
 
-    map { ($hash->{$_}); } (sort keys %$hash);
+    map { ($hash->{$_}); } @fields;
 }
 
 sub balance_account_lines
@@ -406,17 +459,18 @@ sub assign_hash_defaults
 
 sub error
 {
-    my ($file, $line, $msg,$tran_text, $txt) =
-	hv_to_a(5,
+    my ($file, $line, $msg,$tran_text, $txt, $type) =
+	hv_to_a(6,
 		{assign_hash_defaults({file => $curr_file,
-				      line => $curr_line,
-				      msg => "",
-				      tran_text => undef,
-				      txt => "",
+				       line => $curr_line,
+				       msg => "",
+				       tran_text => $curr_tran_text,
+				       txt => "",
+				       type => "ERROR",
 				      },
 				     @_)});
     
-    print STDERR "ERROR $file: $line  -- $msg\n";
+    print STDERR "$type $file: $line  -- $msg\n";
     if($txt)
     {
 	print STDERR "    Line is: $txt\n\n";
@@ -439,66 +493,32 @@ sub add_tran
 
     @account_lines = balance_account_lines($file, $line, $tran_text, @account_lines);
 
-    #figure out the currency types on each side of the transaction
-    #and the amounts
-    my ($pos_asset_currency, $pos_asset_amount,
-	$neg_asset_currency, $neg_asset_amount) = (undef, $ZERO, undef, $ZERO);
+    my ($asset_ag, $income_ag, $expense_ag) = 
+	create_account_groups(
+	    sub { my $msg = shift;
+		  errorfile => $file, line => $line, tran_text => $tran_text, msg => $msg },
+	    \@account_lines, 
+	    sub { /${assets_reg}/ }, 
+	    sub { /${income_reg}/ },
+	    sub { /${expenses_reg}/ });
 
-    foreach (@account_lines)
-    { 
-	my ($acct,$amt,$curr, $price_amt, $price_curr) = hv_to_a(5,$_);
-
-	if($acct =~ /${assets_reg}/)
-	{
-	    my ($asset_curr, $asset_amt) =
-		$amt > 0 ? 
-		(\$pos_asset_currency, \$pos_asset_amount)
-		:
-		(\$neg_asset_currency, \$neg_asset_amount);
-	    
-	    error(file => $file, line => $line, msg => "Only one currency per side of the transaction is allowed, $$asset_curr and $curr exist")
-		if (defined $$asset_curr) && $$asset_curr ne $curr;
-	    
-	    $$asset_curr = $curr;
-	    $$asset_amt += $amt;
-	}
-    }
-
-    my ($pos_expense, $neg_expense) = (0,0);
-
-    #figure out where to put the expense accounts
-    foreach (@account_lines)
-    { 
-	my ($acct,$amt,$curr,$price_amt, $price_curr) = hv_to_a(5,$_);
-
-	if($acct =~ /${expenses_reg}/)
-	{
-	    if($pos_asset_currency && $curr eq $pos_asset_currency)
-	    {
-		$pos_expense += $amt;
-	    }
-	    elsif($neg_asset_amount && $curr eq $neg_asset_currency)
-	    {
-		$neg_expense += $amt;
-	    }
-	    else
-	    {
-		error(file => $file, line => $line, msg => "Expense currency must be equal to one of the currencies of the transaction, got: $curr, pos curr $pos_asset_currency, neg curr $neg_asset_currency");
-	    }
-	}
-    }
-
-    if(map { 	
-	if($_->{acct} =~ /${income_reg}/) { (1) }
-	else { (); }
-       } (@account_lines))
+    #if income transaction
+    if(ag_currs($income_ag) != 0)
     {
-	#an income transaction
+	ag_currs($income_ag) == 1 or 
+	    error(file => $file, line => $line, tran_text => $tran_text, msg => "Only one currency for income transactions is allowed");
+	ag_currs($asset_ag) == 1 or 
+	    error(file => $file, line => $line, tran_text => $tran_text, msg => "Only one currency for income transactions is allowed");
 
-	error(file => $file, line => $line, msg => "Income can't have expense accounts")
-	    if $pos_expense || $neg_expense;
-	
-	
+	my ($icurr,$iamt) =  ag_get_curr_amt($income_ag);
+	my ($acurr,$aamt) =  ag_get_curr_amt($asset_ag);
+
+	$icurr eq $acurr or
+	    error(file => $file, line => $line, tran_text => $tran_text, msg => "Only one currency for income transactions is allowed");
+
+	$aamt > 0 or
+	    error(file => $file, line => $line, tran_text => $tran_text, msg => "Amount for asset accounts must be positive, got: $aamt");
+
 	push @trades, { 
 		file => $file,
 		line => $line,
@@ -507,15 +527,18 @@ sub add_tran
 		date => $date,
 		time => $time,
 		index => $index,
-		amt => $pos_asset_amount,
-		curr => $pos_asset_currency };
+		amt => $aamt,
+		curr => $acurr};
     }
-    else
+    elsif(($_ = ag_currs($asset_ag)) != 0)
     {
-	if((!defined $pos_asset_currency))
+	if($_ == 1) #transfer
 	{
-	   
-	    push @trades, {
+	    my ($acurr,$aamt) =  ag_get_curr_amt($asset_ag);
+	    
+	    #ignored for tax, but we need it for our balancing report, and to make sure
+	    #we don't claim a basis for funds that we don't have anymore
+	    push @trades, { 
 		file => $file,
 		line => $line,
 		tran_text => [@$tran_text],
@@ -523,80 +546,66 @@ sub add_tran
 		date => $date,
 		time => $time,
 		index => $index,
-		amt => $neg_asset_amount,
-		curr => $neg_asset_currency,
-	    };
-	    
-	    #we only care about internal (asset to asset) transactions. If the money is being sent/received
-	    #somewhere else, its not taxable
-	    return;
+		amt => $aamt,
+		curr => $acurr};
 	}
-	if((!defined $neg_asset_currency))
+	elsif($_ == 2) # two currencies mean a trade
 	{
-	   
-	    push @trades, {
-		file => $file,
-		line => $line,
-		tran_text => [@$tran_text],
-		type => 'transfer',
-		date => $date,
-		time => $time,
-		index => $index,
-		amt => $pos_asset_amount,
-		curr => $pos_asset_currency,
-	    };
-	    
-	    #we only care about internal (asset to asset) transactions. If the money is being sent/received
-	    #somewhere else, its not taxable
-	    return;
-	}
-	
-	#if an internal transfer from one asset account to another
-	if($pos_asset_currency eq $neg_asset_currency)
-	{
-	    push @trades, {
-		file => $file,
-		line => $line,
-		tran_text => [@$tran_text],
-		type => 'transfer',
-		date => $date,
-		time => $time,
-		index => $index,
-		amt => -($pos_expense + $neg_expense),
-		expense => ($pos_expense + $neg_expense),
-		curr => $pos_asset_currency,
-	    };
-	    
-	    #fees from transferring funds around are not deductable AFAIK
-	    #http://www.beansmart.com/taxes/are-wire-transfer-cost-deductible-20873-.htm
-	    #so we ignore it
-	    return;
-	}
+	    my ($curr1,$amt1,$curr2,$amt2) =  ag_get_curr_amt($asset_ag);
 
-	my ($pos_expense, $neg_expense) = (0,0);	
-
-	push @trades, {
-	    file => $file,
-	    line => $line,
-	    tran_text => [@$tran_text],
-	    type => 'trade',
-	    date => $date,
-	    time => $time,
-	    index => $index,
-	    buy_amt => $pos_asset_amount, #this is the net amount, ie minus expenses
-	    buy_expense => $pos_expense,
-	    #if the other side is the base currency, we use it as
-	    #the cost basis, otherwise we leave it undef, to calculate
-	    #after we are done reading the files
-	    buy_curr => $pos_asset_currency,
+	    my ($expense_curr, $expense_amt);
+	    if(($_ = ag_currs($expense_ag)) == 1)
+	    {
+		($expense_curr, $expense_amt) = ag_get_curr_amt($expense_ag);
+	    }
+	    elsif($_ == 0)
+	    {
+		$expense_curr = $base_curr;
+		$expense_amt = $ZERO;
+	    }
+	    else {
+		error(file => $file, line => $line, tran_text => $tran_text, msg => "The expense account may contain only one currency");
+	    }
 	    
-	    sell_amt => -$neg_asset_amount,
-	    sell_expense => $neg_expense,
-	    #if the other side is the base currency, we use it as
-	    #the cost basis, otherwise we leave it undef, to calculate
-	    #after we are done reading the files
-	    sell_curr => $neg_asset_currency,
-	};
+
+	    $amt1 < 0 && $amt2 > 0 || $amt1 > 0 && $amt2 < 0 or
+		error(file => $file, line => $line, tran_text => $tran_text, msg => "If not an income transaction, and contains two currencies, then there must be a positive and negative amount");
+
+	    if($amt1 < 0)
+	    {
+		my ($tamt,$tcurr) = ($amt1,$curr1);
+
+		$amt1 = $amt2;
+		$curr1 = $curr2;
+		$amt2 = $tamt;
+		$curr2 = $tcurr;
+	    }
+
+	    #a real trade
+	    push @trades, {
+		file => $file,
+		line => $line,
+		tran_text => [@$tran_text],
+		type => 'trade',
+		date => $date,
+		time => $time,
+		index => $index,
+		buy_amt => $amt1,
+		buy_curr => $curr1,
+		sell_amt => -$amt2,
+		sell_curr => $curr2,
+		expense_amt => $expense_amt,
+		expense_curr => $expense_curr,
+	    };
+	}
+	else # more than 2 currencies
+	{
+		error(file => $file, line => $line, tran_text => $tran_text, msg => "A transaction cannot contain more than 2 currencies in the asset category");
+	}
+    }
+    else #assets hasn't changed
+    {
+	#no-op
     }
 }
 
@@ -607,18 +616,15 @@ sub add_price_quote
 
     $time = (!defined $time) ? "" : $time;
 
-    if($pq_base_curr eq $base_curr)
+    push @{$curr_to_price_quotes{$curr}}, 
     {
-	push @{$curr_to_price_quotes{$curr}}, 
-	{
-	    date => $date,
-	    time => $time,
-	    index => $index,
-	    curr => $curr,
-	    amt => bigrat($amt),
-	};
-    }
-    #else ignore it, because it's not associated to our currency
+	date => $date,
+	time => $time,
+	index => $index,
+	curr => $curr,
+	amt => bigrat($amt),
+	base_curr => $pq_base_curr
+    };
 }
 
 sub binary_search {
@@ -653,8 +659,10 @@ sub compare_date_time_index($$)
 
 sub figure_base_curr_price
 {
-    my ($amt, $curr, $date, $time, $index) = @_;
+    my ($amt, $curr, $date, $time, $index, %tried_currencies) = @_;
 
+    $tried_currencies{$curr} = 1;
+    
     my $pq = $curr_to_price_quotes{$curr};
 
     my $target = { date => $date,
@@ -680,21 +688,78 @@ sub figure_base_curr_price
     #n - 1 = -2 -pos
     $pos = -2-$pos;
 
-    if($pos < 0)
+    if($pos < -1)
     {
 	return undef;
     }
+    
+    $pos == -1 and $pos = 0;
 
-    if($pq->[$pos]->{date} ne $date)
-    {
-	$pos++;
-	if($pq->[$pos]->{date} ne $date)
-	{
-	    return undef;
-	}
-    }
+    my $start_pos = $pos;
 
-    return $pq->[$pos]->{amt} * $amt;
+    my $search = 
+	sub {
+	    my ($pos, $dir, $test) = @_;
+	    
+	    #first search backwards
+	    while(1)
+	    {
+		my $r = $pq->[$pos];
+	
+		if($r->{date} ne $date)
+		{
+		    last;
+		}
+
+		$_ = $test->($r) and return $_;
+
+		$pos += $dir;
+	    }
+    };
+
+    my $base_curr_test =
+	sub {
+	    my ($r) = @_;
+	    if($r->{base_curr} eq $base_curr)
+	    {
+		return $r->{amt} * $amt;
+	    }
+	    
+	    undef;
+    };
+    
+    #search for for any currency not already tried, and we'll recursively search that
+    #to find a chain of currency prices. 
+    #
+    # ex, 1 NEU = .3 BTC and 1 BTC = $0.50
+    # means 1 NEU = .3 * .5 = $ .15 
+    #first search backwards
+    my $other_curr_test =
+	sub {
+	    my ($r) = @_;
+	    if(!$tried_currencies{$r->{base_curr}})
+	    {
+		my $ratio =  figure_base_curr_price(1, $r->{base_curr}, $date, $time, $index,
+						    %tried_currencies);
+		
+		if(defined $ratio)
+		{
+		    return $r->{amt} * $amt * $ratio;
+		}
+
+		undef;
+	    }
+	    if($r->{base_curr} eq $base_curr)
+	    {
+		return $r->{amt} * $amt;
+	    }
+    };
+    
+
+    $search->($pos, -1, $base_curr_test) 
+	or $search->($pos+1, 1, $base_curr_test) 
+	or $search->($pos, -1, $other_curr_test) 
+	or $search->($pos+1, 1, $other_curr_test) ;
 }
 
 
@@ -823,4 +888,162 @@ sub normalize_date
     my ($y,$m,$d) = $date =~ /(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/ or die;
 
     return sprintf('%04d-%02d-%02d',$y,$m,$d);
+}
+
+sub create_account_groups
+{
+    my ($error_sub, $accts, @subs) = @_;
+
+    #create one account group per sub
+    my @res_ag =
+	map { ;{
+	    curr_to_amt => {}
+	      };} 1..(scalar @subs);
+
+
+    #add the currency of each account to its account group
+    foreach my $a (@{$accts})
+    {
+	my $found_sub_already;
+	for(my $i = $#subs; $i >=0; $i--)
+	{
+	    $_ = $a->{acct};
+	    if($subs[$i]->())
+	    {
+		!$found_sub_already or
+		    $error_sub->("Account appears in more than one category, $a->{acct}");
+		$found_sub_already = 1;
+
+		my ($amt,$curr) = ($a->{amt},$a->{curr});
+		
+		my $curr_to_amt = $res_ag[$i]->{curr_to_amt};
+
+		defined $curr_to_amt->{$curr} or $curr_to_amt->{$curr} = $ZERO;
+
+		$curr_to_amt->{$curr} += $amt;
+	    }
+	}	
+    }
+    
+    return @res_ag;
+}
+
+sub ag_currs
+{
+    return scalar keys %{shift->{curr_to_amt}};
+}
+
+#returns each currency and corresponding amount of the accounting group as a list
+sub ag_get_curr_amt
+{
+    my ($ag) = @_;
+    
+    return map { ($_, $ag->{curr_to_amt}->{$_}); } keys %{$ag->{curr_to_amt}};
+}
+
+
+sub figure_trade_base_vals
+{
+    my ($t) = @_;
+
+    my ($file,$line,$tran_text,$date,$time,$index,$buy_curr,$buy_amt,$sell_curr,$sell_amt,
+	$expense_curr,$expense_amt) = 
+	    hv_to_a(undef,$t,
+		    qw {  file  line  tran_text  date  time  index  buy_curr  buy_amt  sell_curr  sell_amt 
+	 expense_curr  expense_amt });
+
+    my ($buy_base_val, $sell_base_val);
+    
+    if($sell_curr eq $base_curr)
+    {
+	#here is where expenses come into play. Normally when we trade two currencies
+	#we use the fair market value of each (expenses won't affect this, because
+	# they are subtracted out beforehand)
+	#however, if we are trading one currency for the base currency (effectively
+	# "buying" or "selling" it), we use it as the price we sold/bought the other 
+	# currency at. We use the expenses to determine the effective base price to do this
+	#
+	# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
+	# for this transaction. So the total cost is $30, and we received $10 of value.
+	# The expenses store this $20 fee.
+	# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
+	# base value of $10.
+
+	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
+						       $buy_amt, $buy_curr, $sell_amt);
+
+	(defined $expense_base_amt) or 
+	    error(file => $file, line => $line, tran_text => $tran_text, 
+		  msg => "Expense be in $base_curr or $buy_curr");
+	
+	$buy_base_val = $sell_amt + $expense_amt;
+	
+	$sell_base_val = $sell_amt;
+    }
+    elsif($buy_curr eq $base_curr)
+    {
+	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
+						       $sell_amt, $sell_curr, $buy_amt);
+
+	(defined $expense_base_amt) or 
+	    error(file => $file, line => $line, tran_text => $tran_text, 
+		  msg => "Expense be in $base_curr or $sell_curr");
+	
+	$buy_base_val = $buy_amt;
+
+	$sell_base_val = $buy_amt - $expense_amt;
+    }
+    else
+    {
+	$buy_base_val = 
+	    figure_base_curr_price($buy_amt, $buy_curr, $date, $time, $index)
+	    || $expense_curr eq $sell_curr &&
+	    figure_base_curr_price($sell_amt+$expense_amt, $sell_curr, $date, $time, $index)
+	    || $expense_curr eq $base_curr &&
+	    (defined ($_ = figure_base_curr_price($sell_amt, $sell_curr, $date, $time, $index)))
+	    && ($_ + $expense_amt);
+	$sell_base_val = 
+	     figure_base_curr_price($sell_amt, $sell_curr, $date, $time, $index)
+	     || $expense_curr eq $buy_curr &&
+	     figure_base_curr_price($buy_amt-$expense_amt, $buy_curr, $date, $time, $index)
+	     || $expense_curr eq $base_curr &&
+	     (defined ($_ = figure_base_curr_price($buy_amt, $buy_curr, $date, $time, $index)))
+	     && ($_ - $expense_amt);
+    }
+
+    (defined $buy_base_val) or
+	error(file => $file, line => $line, tran_text => $tran_text, msg => "Couldn't calculate base val of buy currency, $buy_amt $buy_curr");
+
+    (defined $sell_base_val) or
+	error(file => $file, line => $line, tran_text => $tran_text, msg => "Couldn't calculate base val of sell currency, $sell_amt $sell_curr");
+	     
+
+    return ($buy_base_val, $sell_base_val);
+}
+
+#figures the expense given the amount traded and its price
+sub figure_expense_base_amt
+{
+    my($expense_amt, $expense_curr, $amt, $curr, $base_amt) = @_;
+
+    if($expense_curr eq $base_curr)
+    {
+	return $expense_amt;
+    }
+    
+    if($expense_curr eq $curr)
+    {
+	# e - expense amt
+	# a - amt
+	# r - base_curr / amt_curr
+	# b - base amount (in base currency)
+	# (e + a) * r == b
+	# r = b / (e + a)
+	#
+	# e * r = e in base currency
+	
+	return $base_amt / ($expense_amt + $amt) * $expense_amt;
+    }
+
+    return undef;
 }

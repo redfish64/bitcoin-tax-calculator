@@ -31,7 +31,7 @@ use Trade;
 
 sub new
 {
-    my ($class, $date, $shares, $price, $symbol, $refs) = @_;
+    my ($class, $date, $shares, $price, $symbol, $refs, $not_reported) = @_;
     
     $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);
 

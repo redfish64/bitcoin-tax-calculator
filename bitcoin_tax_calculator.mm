@@ -183,38 +183,12 @@
 </node>
 </node>
 </node>
-<node CREATED="1449704572881" ID="ID_164550394" MODIFIED="1449704593315" TEXT="Plan">
-<node CREATED="1449704099904" ID="ID_1611545438" MODIFIED="1449704107236" TEXT="Convert to +/-">
-<node CREATED="1449704108704" ID="ID_462998287" MODIFIED="1449704113268" TEXT="+ == Buy"/>
-<node CREATED="1449704113632" ID="ID_870687886" MODIFIED="1449704116860" TEXT="- == Sell"/>
-<node CREATED="1449704126409" ID="ID_1707577342" MODIFIED="1449704135084" TEXT="Ignore base currency buy/sells"/>
-<node CREATED="1449704135520" ID="ID_1053883674" MODIFIED="1449704150636" TEXT="Use base currency buy/sells to calculate value of other side if exists"/>
-</node>
-</node>
 </node>
 <node CREATED="1449704084872" ID="ID_1602792321" MODIFIED="1449704598039" TEXT="Income">
 <node CREATED="1449704601584" ID="ID_1694802152" MODIFIED="1449704608276" TEXT="Taxable income"/>
 <node CREATED="1449704663744" ID="ID_797421972" MODIFIED="1449704665869" TEXT="Restrictions">
 <node CREATED="1449704208761" ID="ID_22145562" MODIFIED="1449704843292" TEXT="Assets must be + only"/>
 <node CREATED="1449704208761" ID="ID_343133123" MODIFIED="1449704838621" TEXT="Assets must have only one currency"/>
-</node>
-<node CREATED="1449704598017" ID="ID_463035083" MODIFIED="1449704599580" TEXT="Plan">
-<node CREATED="1449704157305" ID="ID_273753604" MODIFIED="1449704162116" TEXT="Convert to">
-<node CREATED="1449704163249" ID="ID_1494185922" MODIFIED="1449704280865">
-<richcontent TYPE="NODE"><html>
-  <head>
-    
-  </head>
-  <body>
-    <p>
-      Buy for $0 or invoke Asset logic assuming sell side is zero
-    </p>
-  </body>
-</html></richcontent>
-</node>
-<node CREATED="1449704169240" ID="ID_735525978" MODIFIED="1449704182853" TEXT="Sell for current market value"/>
-<node CREATED="1449704183641" ID="ID_462967178" MODIFIED="1449704190445" TEXT="Buy for current market value"/>
-</node>
 </node>
 </node>
 <node CREATED="1449704086576" ID="ID_1965645215" MODIFIED="1449704088300" TEXT="Expenses">
@@ -254,6 +228,71 @@
 <node CREATED="1449704924392" ID="ID_1819787136" MODIFIED="1449704933916" TEXT="Total everything into these four accounts">
 <node CREATED="1449704937624" ID="ID_248994247" MODIFIED="1449704943645" TEXT="Each account contains">
 <node CREATED="1449704944800" ID="ID_1753328" MODIFIED="1449704978908" TEXT="Currency to Amount"/>
+</node>
+</node>
+<node CREATED="1449705121800" ID="ID_1386813312" MODIFIED="1449705142404" TEXT="Transactions">
+<node CREATED="1449705143488" ID="ID_1512151616" MODIFIED="1449705146172" TEXT="transfer">
+<node CREATED="1449705154456" ID="ID_1025215357" MODIFIED="1449716861109">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Internal transfer with fees or random expense
+    </p>
+  </body>
+</html>
+</richcontent>
+<node CREATED="1449705160384" ID="ID_1130411160" MODIFIED="1449716822413">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      ignored for tax but we have to &quot;sell&quot; it off anyway.
+    </p>
+    <p>
+      
+    </p>
+    <p>
+      In other words we need to take it from a buy lot
+    </p>
+  </body>
+</html>
+</richcontent>
+</node>
+</node>
+<node CREATED="1449716863624" ID="ID_1782277550" MODIFIED="1449716874331" TEXT="Convert to">
+<node CREATED="1449716877095" ID="ID_231015350" MODIFIED="1449716886507" TEXT="Unreported Sell"/>
+</node>
+</node>
+<node CREATED="1449705148857" ID="ID_1945615022" MODIFIED="1449705150308" TEXT="income">
+<node CREATED="1449704157305" ID="ID_273753604" MODIFIED="1449704162116" TEXT="Convert to">
+<node CREATED="1449704163249" ID="ID_1494185922" MODIFIED="1449704280865">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      Buy for $0 or invoke Asset logic assuming sell side is zero
+    </p>
+  </body>
+</html></richcontent>
+</node>
+<node CREATED="1449704169240" ID="ID_735525978" MODIFIED="1449704182853" TEXT="Sell for current market value"/>
+<node CREATED="1449704183641" ID="ID_462967178" MODIFIED="1449704190445" TEXT="Buy for current market value"/>
+</node>
+</node>
+<node CREATED="1449705150696" ID="ID_352556699" MODIFIED="1449705151756" TEXT="trade">
+<node CREATED="1449704572881" ID="ID_164550394" MODIFIED="1449704593315" TEXT="Plan">
+<node CREATED="1449704108704" ID="ID_462998287" MODIFIED="1449704113268" TEXT="+ == Buy"/>
+<node CREATED="1449704113632" ID="ID_870687886" MODIFIED="1449704116860" TEXT="- == Sell"/>
+<node CREATED="1449704126409" ID="ID_1707577342" MODIFIED="1449704135084" TEXT="Ignore base currency buy/sells"/>
+<node CREATED="1449704135520" ID="ID_1053883674" MODIFIED="1449704150636" TEXT="Use base currency buy/sells to calculate value of other side if exists"/>
+</node>
 </node>
 </node>
 <node CREATED="1449704984777" ID="ID_645233873" MODIFIED="1449704991620" TEXT="Check restrictions"/>
