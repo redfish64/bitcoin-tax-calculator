@@ -38,7 +38,7 @@ sub insertAfter
 {
     my ($self, $trade, $afterMe) = @_;
     my $i;
-    my $list = $self->{'list'};
+    my $list = $self->{list};
 
     #search through entire list for $afterMe
     for($i = 0; $i < @$list; $i++)
@@ -50,12 +50,12 @@ sub insertAfter
     }
 }
 
-#adds must be done in chronilogical order
+#adds must be done in chronological order
 sub add
 {
     my ($self, $trade) = @_;
 
-    my $list = $self->{'list'};
+    my $list = $self->{list};
 
     #try to combine with previous trades
     $pos = $#{$list};
@@ -74,10 +74,11 @@ sub add
 		return;
 	    }
 
-	    if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
-	    {
-		last;
-	    }
+	    #co: allows all trades to be combined regardless of intervening buys/sells
+	    # if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
+	    # {
+	    # 	last;
+	    # }
 	}
 	else  #other trade
 	{
@@ -96,7 +97,7 @@ sub checkWashesAndAssignBuysToSells
 {
     my ($self) = @_;
 
-    my $list = $self->{'list'};
+    my $list = $self->{list};
 
     my $sell;
 
@@ -109,12 +110,12 @@ sub checkWashesAndAssignBuysToSells
     
     for($j = 0; $j < (@{$list}); $j++)
     {
-	$j % 50 == 0 and print STDERR "$j out of ".($#{$list}+1)." sells ... (may grow due to splitting lows)\n";
+	$j % 50 == 0 and print STDERR "$j out of ".($#{$list}+1)." trades ... (may grow due to splitting sells in order to match buys)\n";
 	
 	my $sell = $list->[$j];
 
 	#if the trade is a sell
-	if($sell->type eq "sell" && !(defined $sell->{'buy'}))
+	if($sell->type eq "sell" && !(defined $sell->{buy}))
 	{
 #2. Find first buy which has not been allocated as a buy for any sell. 
 #   Continue this process until all shares of the sells have a buy. Last buy may have to be split 
@@ -128,40 +129,56 @@ sub checkWashesAndAssignBuysToSells
 		$buy = $list->[$i];
 		
 		#if buy is the same symbol as sell and hasn't already been allocated as a buy for another sell
-		if($buy->type eq "buy" && $buy->{'symbol'} eq $sell->{'symbol'} && !(defined $buy->{'sell'}))
+		if($buy->type eq "buy" && $buy->{symbol} eq $sell->{symbol} && !(defined $buy->{sell}))
 		{
-		    if($buy->{'shares'} > $sell->{'shares'})
+		    verify_buy_sell_chain($buy);
+		    verify_buy_sell_chain($sell);
+			
+		    if($buy->{shares} > $sell->{shares})
 		    {
-			$buy->split($self, $sell->{'shares'});
+			$buy->split($self, $sell->{shares});
 		    }
-		    elsif($sell->{'shares'} > $buy->{'shares'})
+		    elsif($sell->{shares} > $buy->{shares})
 		    {
-			$sell->split($self, $buy->{'shares'});
+			$sell->split($self, $buy->{shares});
 		    }
 
+		    if($buy->{shares} != $sell->{shares})
+		    {
+			die;
+		    }
+			
 		    #allocates the shares to the buy
 		    $buy->markBuyForSell($sell);
+
+		    verify_buy_sell_chain(find_chain_top($buy));
+		    verify_buy_sell_chain($sell);
+			
 		    last;
 		}
 		
 	    } #for each trade in list
 
-	    if(!defined $sell->{'buy'})
+	    if(!defined $sell->{buy})
 	    {
 		die "Couldn't find buy for sell: ".$sell->toString();
 	    }
 	}
     }
 
-    print STDERR "Identifying wash sales\n";
+    #we don't worry about wash sales anymore, they don't apply to virtual currency, it seems!
+    return;
     
+    print STDERR "Identifying wash sales\n";
+
+    my $do_print ;    
      for($j = 0; $j < (@{$list}); $j++)
      {
-	 $j % 50 == 0 and print STDERR "$j out of ".($#{$list}+1)." sells ... (and growing)\n";
-	 
-	my $sell = $list->[$j];
+	 my $sell = $list->[$j];
+
+	 $do_print = 1 if $j % 50 == 0;
    
-	if($sell->type eq "sell" && !$sell->{'washBuy'})
+	if($sell->type eq "sell" && !$sell->{washBuy})
 	{
 	    
 #3. Find buy which is not a wash for any sell and is not the buy for *this* sell and has been traded within
@@ -179,29 +196,80 @@ sub checkWashesAndAssignBuysToSells
 		    $buy = $list->[$i];
 		    
 		    #if we've gone past the wash sale interval
-		    if($buy->{'date'} > $sell->{'date'} + 30)
+		    if($buy->{date} > $sell->{date} + 30)
 		    {
 			last;
 		    }
 
-		    
-		    if($buy->type eq "buy" && $buy->{'symbol'} eq $sell->{'symbol'} && $buy->{'date'} >= $sell->{'date'} - 30 
-		       && ! $buy->{'sell'} != $sell && ! $buy->isWash())
+		    my $buy_top;
+		    if($buy->type eq "buy" && $buy->{symbol} eq $sell->{symbol} 
+		       && $buy->{date} >= $sell->{date} - 30 
+		       && ($buy_top = find_chain_top($buy)) != $sell && ! $buy->isWash()
+
+		       #this last line is very important, but hard to comprehend
+		       #the issue is that if you can wash sale and resell on the same
+		       #day you will end up with a huge number of washes for a very
+		       #tiny trades. This is because every time you make a tiny trade
+		       #it eats a little bit from the big trades around it, but the
+		       #result is ultimately another buy/sell pair that has to again
+		       #be checked and rewashed. This goes in a nearly endless circle
+		       #over and over again
+		       #
+		       #example, the following will end up with 200 wash sale lines without
+		       #this condition
+
+# 2015-08-12 11:08:00
+#   Assets:Kraken     -$ 10
+#   Assets:Kraken     2 ETH
+#   Expenses:Fees     $ 0.01
+#   Expenses:Fees     0.0000000000 ETH
+
+# 2015-08-13 07:23:41
+#   Assets:Wallet:ethereum     -0.01 ETH
+#   Expenses:Fees:Gas
+
+# 2015-08-15 11:08:00
+#   Assets:Kraken     $ 5
+#   Assets:Kraken     -1.99 ETH
+#   Expenses:Fees     $ 0.01
+#   Expenses:Fees     0.0000000000 ETH
+
+		       && $buy_top->type eq "sell" && $buy_top->{date} != $sell->{date}
+			)
 		    {
+			if($do_print)
+			{
+			    print STDERR "$j out of ".($#{$list}+1)." trades ... (and growing)";
+
+			    print STDERR "Buy:\n".debug_str($buy);
+			    print STDERR "Sell:\n".debug_str($sell);
+				
+			    $do_print = undef;
+			}
+	 
 			#allocates the shares as a wash to the sell(this may split the buy into two or
 			#split the sell in two)
-			
-			if($buy->{'shares'} > $sell->{'shares'})
-			{
-			    $buy->split($self, $sell->{'shares'});
-			}
-			elsif($sell->{'shares'} > $buy->{'shares'})
-			{
-			    $sell->split($self, $buy->{'shares'});
-			}
-			
-			$buy->markAsWash($self, $sell);
 
+			verify_buy_sell_chain($buy_top);
+			verify_buy_sell_chain($sell);
+
+			if($buy->{shares} > $sell->{shares})
+			{
+			    my $split = $buy_top->split($self, $sell->{shares});
+			    verify_buy_sell_chain($split);
+			    $buy_top == find_chain_top($buy) or die;
+			}
+			elsif($sell->{shares} > $buy->{shares})
+			{
+			    my $split = $sell->split($self, $buy->{shares});
+			    verify_buy_sell_chain($split);
+			}
+
+			$buy->markAsWash($sell);
+
+			verify_buy_sell_chain($buy_top);
+			verify_buy_sell_chain($sell);
+			
 			last;
 		    }
 		} #for each trade in list
@@ -218,25 +286,19 @@ sub print
 
     my $trade;
     my $currentDate = 0;
-    my $btc_balance = 0;
+    my $btc_balance = $main::ZERO;
+    my $usd_balance = $main::ZERO;
 
-    print "Date\tSymbol\tType\tShares\tPrice\tShare Price\tIs Wash?\tBTC Running Balance\tUSD Running Balance\n";
+    print "Date\tSymbol\tType\tShares\tPrice\tShare Price\tRefs\n";
     
-    foreach $trade (@{$self->{'list'}})
+    foreach $trade (@{$self->{list}})
     {
-	if($trade->{'date'} != $currentDate)
+	if($trade->{date} != $currentDate)
 	{
-	    $currentDate = $trade->{'date'};
+	    $currentDate = $trade->{date};
 	}
 	
 	print $trade->toString();
-	
-	my $is_buy = $trade->type eq "buy" ? 1 : 0;
-	
-	$btc_balance += $trade->{'shares'} * ($is_buy ? 1 : -1);
-	$usd_balance += $trade->{'price'} * ($is_buy ? -1 : 1);
-	
-	print "\t$btc_balance\t$usd_balance\n";
     }
     
     
@@ -249,13 +311,173 @@ sub printIRS
 
     my $trade;
 
-    print "Shares\tSymbol\tSell Price\tDate\tBuy Price\tBuy Date\tIs Wash?\tGain\n";
+    print "
+-------------------------------------------------------
+Short term Trades\n\n";
+    print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
 
-    foreach $trade (@{$self->{'list'}})
+    my $running_gain = $main::ZERO;
+    foreach $trade (@{$self->{list}})
     {
-	print $trade->toIRSString();
+	if($trade->type eq "sell" && !$trade->isLongTerm())
+	{
+	    $running_gain += $trade->getGain() || $main::ZERO;
+	    print getIRSRow($trade, $running_gain)."\n";
+	}
+    }
+    print "
+-------------------------------------------------------
+Long term Trades\n\n";
+    print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
+
+    $running_gain = $main::ZERO;
+    foreach $trade (@{$self->{list}})
+    {
+	if($trade->type eq "sell" && $trade->isLongTerm())
+	{
+	    $running_gain += $trade->getGain() || $main::ZERO;
+	    print getIRSRow($trade, $running_gain)."\n";
+	}
     }
 }
+
+
+sub getIRSRow
+{
+    my ($trade, $running_gain) = @_;
+    
+    my $buy = $trade->{buy};
+    my $shares = $trade->{shares};
+    my $sellPrice = $trade->{price};
+
+    if(!defined $buy)
+    {
+	return (join("\t",
+		     main::format_amt($shares),
+		     $trade->{symbol},
+		     &main::convertDaysToText($trade->{date}),
+		     "No buy found for this sell",
+		     "",
+		     main::format_amt($sellPrice),
+		     "",
+		     "",
+		     main::format_amt($running_gain),
+		     $trade->refs_string(),
+		));
+    }
+    
+    my $buyPrice = $buy->getBasis();
+    my $buyDate = &main::convertDaysToText($buy->{date});
+	    
+    return (join("\t",
+		 main::format_amt($shares),
+		 $trade->{symbol},
+		 &main::convertDaysToText($trade->{date}),
+		 $buyDate,
+		 main::format_amt($sellPrice),
+		 main::format_amt($buyPrice),
+		 main::format_amt($sellPrice - $buyPrice),
+		 main::format_amt($running_gain),
+		 $trade->refs_string(),
+	    ));
+}
+
+
+sub verify_buy_sell_chain
+{
+    my ($t) = @_;
+
+    if ($t->type eq "buy")
+    {
+	if($buy->{sell})
+	{
+	    die "not starting at the top of the chain";
+	}
+    }
+
+    my $depth =0;    
+    my $lt;
+
+    while(1)
+    {
+	$depth++;
+	$lt = $t;
+	$t = ($t->type eq "buy") ? $t->{washSell} : $t->{buy};
+
+	if(!defined $t)
+	{
+	    last;
+	}
+
+	if ($lt->{shares} != $t->{shares})
+	{
+	    die "shares don't match $lt->{shares} != $t->{shares}";
+	}
+
+	if($t->type eq "buy")
+	{
+	    if ($t->{sell} != $lt)
+	    {
+		die "chain doesn't link forward properly $t->{sell} != $lt";
+	    }
+	}
+	else
+	{
+	    if ($t->{washBuy} != $lt)
+	    {
+		die "chain doesn't link forward properly $t->{washBuy} != $lt";
+	    }
+	}
+    }
+
+    $depth;
+}
+
+sub find_chain_top
+{
+    my ($t) = @_;
+
+    while(1)
+    {
+	my $lt = $t;
+	$t = ($t->type eq "buy") ? $t->{sell} : $t->{washBuy};
+
+	if(!defined $t)
+	{
+	    return $lt;
+	}
+
+	if($t->type eq "buy")
+	{
+	    if ($t->{washSell} != $lt)
+	    {
+		die "chain doesn't link forward properly $t->{washSell} != $lt";
+	    }
+	}
+	else
+	{
+	    if ($t->{buy} != $lt)
+	    {
+		die "chain doesn't link forward properly $t->{buy} != $lt";
+	    }
+	}
+    }
+}
+
+sub debug_str
+{
+    my($t) = @_;
+
+    my $refs = join("", map { "Ref:\n".(join "\n", @{$_->{tran_text}})."\n" } @{$t->{refs}});
+
+    return $t->type."\n".
+	"curr $t->{symbol}
+shares: ".$t->{shares}->as_float."
+date: ".main::convertDaysToText($t->{date})."
+depth: ".verify_buy_sell_chain(find_chain_top($t))."\n";
+
+}    
+
 
 1;
 

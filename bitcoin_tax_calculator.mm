@@ -300,5 +300,37 @@
 <node CREATED="1449705007768" ID="ID_1639930209" MODIFIED="1449705017468" TEXT="Compute taxes"/>
 <node CREATED="1449705017777" ID="ID_576645981" MODIFIED="1449705022492" TEXT="Print results"/>
 </node>
+<node CREATED="1449828475959" ID="ID_1245465067" MODIFIED="1449828480155" POSITION="right" TEXT="bitcoin.tax">
+<node CREATED="1449828481200" ID="ID_964849450" MODIFIED="1449828488907" TEXT="Doesn&apos;t allow import before 2013"/>
+<node CREATED="1449828498623" ID="ID_1335340514" MODIFIED="1449828500784" TEXT="Can&apos;t use">
+<font BOLD="true" NAME="SansSerif" SIZE="12"/>
+</node>
+</node>
+<node CREATED="1449828501495" ID="ID_1480280694" MODIFIED="1449828509220" POSITION="right" TEXT="plan4">
+<node CREATED="1449828511903" ID="ID_1003948804" MODIFIED="1449828517451" TEXT="There are about 700 lines"/>
+<node CREATED="1449828518663" ID="ID_852422616" MODIFIED="1449829060589">
+<richcontent TYPE="NODE"><html>
+  <head>
+    
+  </head>
+  <body>
+    <p>
+      To report a wash, we just need to mark 'W' on the 8949 form and give the adjustment
+    </p>
+    <p>
+      
+    </p>
+    <p>
+      So it doesn't matter on what days the wash occurred. Therefore, it may be possible to combine washes
+    </p>
+  </body>
+</html>
+</richcontent>
+</node>
+<node CREATED="1449835435790" ID="ID_69120174" MODIFIED="1449835445801" TEXT="Good news everybody! wash sales may not apply to bitcoin">
+<node CREATED="1449835514695" ID="ID_396883019" MODIFIED="1449835594593" TEXT="https://www.reddit.com/r/Bitcoin/comments/2qar39/i_am_a_tax_attorney_here_are_my_answers_to_common/&#xa;&#xa;#9 Do the wash sale rules apply to bitcoin?&#xa;&#xa;Probably not. The wash sale rules under Section 1091 apply only to &quot;shares of stock or securities.&quot; Therefore, they do not apply to bitcoins unless bitcoins (and virtual currencies in general) qualify as &quot;shares of stock or securities.&quot; This qualification would seem highly unlikely. There&apos;s just really no argument that bitcoins are &quot;shares of stock or securities.&quot; The definition for these terms (taken from Section 1236, for example) is &quot;any share of stock in any corporation, certificate of stock or interest in any corporation, note, bond, debenture, or evidence of indebtedness, or any evidence of an interest in or right to subscribe to or purchase any of the foregoing.&quot; Bitcoins would not appear to meet this definition.&#xa;&#xa;So, as it&apos;s currently written, it does not look like Section 1091 applies to bitcoins and other virtual currencies. That could change in the future of course, but for the moment it seems to be the case.&#xa;&#xa;"/>
+<node CREATED="1449835551206" ID="ID_1394125861" MODIFIED="1449835551206" TEXT=""/>
+</node>
+</node>
 </node>
 </map>

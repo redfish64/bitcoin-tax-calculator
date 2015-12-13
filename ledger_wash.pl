@@ -118,6 +118,13 @@ my %curr_to_price_quotes;
 
 our @trades; #the list of trades sent to the capital gain logic
 
+our $file_prefix = $ARGV[0];
+
+foreach $curr_file (@ARGV)
+{
+    while(!($curr_file =~ /^\Q$file_prefix\E/)) { chop $file_prefix; }
+}
+
 {
     my (@account_lines, %curr_datetime_to_price_quote_data);
     
@@ -136,6 +143,8 @@ our @trades; #the list of trades sent to the capital gain logic
 	    bless $f, 'IO::Handle' unless eval { $f->isa('IO::Handle') };
 	}
 
+	$curr_file =~ s/^$file_prefix// or die "Why we can't remove prefix? $file_prefix $curr_file";
+
 	my ($date, $time,$desc, @account_lines, $curr_tran_line, $curr_tran_file);
 
 	$curr_line = 0;
@@ -144,6 +153,12 @@ our @trades; #the list of trades sent to the capital gain logic
 	{
 	    $curr_line++;
 	    chomp $curr_text;
+
+	    #ledger first character in line comments 
+	    if($curr_text =~ /^[\#\;\*\|]/)
+	    {
+		next;
+	    }
 
 	    #remove comment
 	    $curr_text =~ s/;.*//;
@@ -253,9 +268,9 @@ create_tax_items();
 $tl->checkWashesAndAssignBuysToSells;
 
 $tl->print;
-#print "------------------------------------\n";
-#$tl->printIRS;
-#print "------------------------------------\n";
+print "------------------------------------\n";
+$tl->printIRS;
+print "------------------------------------\n";
 
 
 
@@ -296,11 +311,23 @@ sub create_tax_items
 
 	    if($amt != 0 && $t->{curr} ne $base_curr)
 	    {
-		$tl->add(new Sell(&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
-				  #!defined $base_val
-				  1
-			 )
-		    );
+		if($amt < 0)
+		{
+		    $tl->add(new Sell(&main::convertTextToDays($date), -$amt, $ZERO,$t->{curr}, [$t],
+				      #!defined $base_val
+				      1
+			     )
+			);
+		}
+		else
+		{
+		    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
+				     #!defined $base_val
+				     1
+			     )
+			);
+		}
+
 	    }
 	}
 	elsif($t->{type} eq 'trade')
@@ -564,7 +591,7 @@ sub add_tran
 	    {
 		($expense_curr, $expense_amt) = ag_get_curr_amt($expense_ag);
 	    }
-	    elsif($_ == 0)
+	    elsif($_ == 0) #if no expense account, we default to zero
 	    {
 		$expense_curr = $base_curr;
 		$expense_amt = $ZERO;
@@ -663,9 +690,16 @@ sub compare_date_time_index($$)
     or $a->{index} cmp $b->{index};
 }
 
+#finds the price of the currency in base units. Will even find the result if it has to chain
+#currency prices together (ie we know NEU to BTC and BTC to $, so we can calculate NEU to $)
+#tried_currencies should not be set (for internal use)
 sub figure_base_curr_price
 {
     my ($amt, $curr, $date, $time, $index, %tried_currencies) = @_;
+
+    return $amt if($curr eq $base_curr);
+
+    return $ZERO if $amt == 0;
 
     $tried_currencies{$curr} = 1;
     
@@ -793,7 +827,7 @@ sub parse_amt_curr
 	}
     } 
     #if currency is printed first, sign second, ex $ - 1.23
-    if($s =~ /(${curr_reg})\s*([+-]?)\s*(\d*\.?\d+)/)
+    elsif($s =~ /(${curr_reg})\s*([+-]?)\s*(\d*\.?\d+)/)
     {
 	$curr = $1;
 	if($2 eq "-")
@@ -966,31 +1000,13 @@ sub figure_trade_base_vals
     
     if($sell_curr eq $base_curr)
     {
-	figure_trade_base_val_from_other_side('S', $t);
-	------
-	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
-						       $buy_amt, $buy_curr, $sell_amt);
-
-	(defined $expense_base_amt) or 
-	    error(file => $file, line => $line, tran_text => $tran_text, 
-		  msg => "Expense be in $base_curr or $buy_curr");
-	
-	$buy_base_val = $sell_amt + $expense_amt;
-	
+	$buy_base_val = figure_trade_base_val_from_other_side('B', $t);
 	$sell_base_val = $sell_amt;
     }
     elsif($buy_curr eq $base_curr)
     {
-	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
-						       $sell_amt, $sell_curr, $buy_amt);
-
-	(defined $expense_base_amt) or 
-	    error(file => $file, line => $line, tran_text => $tran_text, 
-		  msg => "Expense be in $base_curr or $sell_curr");
-	
-	$buy_base_val = $buy_amt;
-
-	$sell_base_val = $buy_amt - $expense_amt;
+	$sell_base_val = figure_trade_base_val_from_other_side('S', $t);
+	$buy_base_val = $sell_amt;
     }
     else
     {
@@ -1015,6 +1031,17 @@ sub figure_trade_base_vals
 	$sell_base_val = undef unless $sell_base_val ne '';
     }
 
+    #if we still can't find the value of a side, we can try to determine it by the value of the
+    #other side after expenses
+    if(!defined $buy_base_val)
+    {
+	$buy_base_val = figure_trade_base_val_from_other_side('B', $t);
+    }
+    if(!defined $sell_base_val)
+    {
+	$sell_base_val = figure_trade_base_val_from_other_side('S', $t);
+    }
+
     (defined $buy_base_val) or
 	error(file => $file, line => $line, tran_text => $tran_text, msg => "Couldn't calculate base val of buy currency, $buy_amt $buy_curr");
 
@@ -1028,13 +1055,8 @@ sub figure_trade_base_vals
 #figures the expense given the amount traded and its price
 sub figure_expense_base_amt
 {
-    my($expense_amt, $expense_curr, $amt, $curr, $base_amt) = @_;
+    my($expense_amt, $expense_curr, $amt, $curr, $base_amt,$date, $time, $index) = @_;
 
-    if($expense_curr eq $base_curr)
-    {
-	return $expense_amt;
-    }
-    
     if($expense_curr eq $curr)
     {
 	# e - expense amt
@@ -1048,8 +1070,8 @@ sub figure_expense_base_amt
 	
 	return $base_amt / ($expense_amt + $amt) * $expense_amt;
     }
-
-    return undef;
+ 
+    return figure_base_curr_price($expense_amt, $expense_curr, $date, $time, $index);
 }
 
 
@@ -1059,19 +1081,79 @@ sub figure_trade_base_val_from_other_side
 {
     my ($type, $t) = @_;
 
-    if($type eq 'S')
+    my ($file,$line,$tran_text,$date,$time,$index,$buy_curr,$buy_amt,$sell_curr,$sell_amt,
+	$expense_curr,$expense_amt) = 
+	    hv_to_a(undef,$t,
+		    qw {  file  line  tran_text  date  time  index  buy_curr  buy_amt  sell_curr  sell_amt 
+	 expense_curr  expense_amt });
+
+    my ($buy_base_val, $sell_base_val);
+    if($type eq 'B')
     {
-#here is where expenses come into play. Normally when we trade two currencies
-#we use the fair market value of each (expenses won't affect this, because
-# they are subtracted out beforehand)
-#however, if we are trading one currency for the base currency (effectively
-# "buying" or "selling" it), we use it as the price we sold/bought the other 
-# currency at. We use the expenses to determine the effective base price to do this
-#
-# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
-# for this transaction. So the total cost is $30, and we received $10 of value.
-# The expenses store this $20 fee.
-# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
-# base value of $10.
+	#here is where expenses come into play. Normally when we trade two currencies
+	#we use the fair market value of each (expenses won't affect this, because
+	# they are subtracted out beforehand)
+	#however, if we are trading one currency for the base currency (effectively
+	# "buying" or "selling" it), we use it as the price we sold/bought the other 
+	# currency at. We use the expenses to determine the effective base price to do this
+	#
+	# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
+	# for this transaction. So the total cost is $30, and we received $10 of value.
+	# The expenses store this $20 fee.
+	# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
+	# base value of $10.
+
+	if($sell_curr eq $sell_curr)
 	{
+	    $sell_base_val = $sell_amt;
+	}
+	else
+	{
+	    $sell_base_val = figure_base_curr_price($buy_amt, $buy_curr,
+						   $date, $time, $index);
+		
+	}
+
+	return undef unless defined $sell_base_val;
+	
+	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
+						       $buy_amt, $buy_curr, $sell_amt,
+						       $date, $time, $index);
+	
+	(defined $expense_base_amt) or 
+	    error(file => $file, line => $line, tran_text => $tran_text, 
+		  msg => "Expense be in $base_curr or $sell_curr");
+	
+	return undef unless defined $expense_base_amt;
+	
+	return $sell_base_val + $expense_base_amt;
+    }
+    elsif($type eq 'S')
+    {
+	if($buy_curr eq $buy_curr)
+	{
+	    $buy_base_val = $buy_amt;
+	}
+	else
+	{
+	    $buy_base_val = figure_base_curr_price($sell_amt, $sell_curr,
+						   $date, $time, $index);
+		
+	}
+
+	return undef unless defined $buy_base_val;
+	
+	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
+						       $sell_amt, $sell_curr, $buy_amt,
+						       $date, $time, $index);
+	
+	(defined $expense_base_amt) or 
+	    error(file => $file, line => $line, tran_text => $tran_text, 
+		  msg => "Expense be in $base_curr or $buy_curr");
+	
+	return undef unless defined $expense_base_amt;
+	
+	return $buy_base_val + $expense_base_amt;
+    }
+    else { die $type; }
 }

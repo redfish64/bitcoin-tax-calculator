@@ -33,6 +33,16 @@ sub new
     die unless ref $shares eq 'Math::BigRat';
     die unless ref $refs eq 'ARRAY';
     
+    if($shares < 0)
+    {
+	die "Why negative? $shares";
+    }
+
+    if($price < 0)
+    {
+	die "Why negative? $price";
+    }
+    
     $self = { date => $date, shares => $shares, price =>$price, symbol => $symbol,
 	  block => {}, refs => $refs};
 
@@ -45,26 +55,42 @@ sub combine
     my($self, $other) = @_;
 
 #    print STDERR "Trying to combine $self->{symbol}, $other->{symbol}, ".$self->type.", ".$other->type."\n";
-    if ($self->{'date'} != $other->{'date'} || $self->{'symbol'} ne $other->{'symbol'} || $self->type ne $other->type)
+    if ($self->{date} != $other->{date} || $self->{symbol} ne $other->{symbol} || $self->type ne $other->type)
     {
 	return 0; #unable to combine
     }
 
-    $self->{'shares'} += $other->{'shares'};
-    $self->{'price'} += $other->{'price'};
+    $self->{shares} += $other->{shares};
+    $self->{price} += $other->{price};
 
     push @{$self->{refs}}, @{$other->{refs}};
 
     return 1; #combined successfully
 }
 
+sub refs_string
+{
+    my ($t) = @_;
+
+    my %file_to_lines;
+
+    foreach my $ref (@{$t->{refs}})
+    {
+	push @{$file_to_lines{$ref->{file}}}, $ref->{line};
+    }
+
+    return join(" ",map { $_.":".join(",",@{$file_to_lines{$_}}) } (sort keys %file_to_lines));
+}
+
 sub toString
 {
     my ($self) = @_;
 
-    &main::convertDaysToText($self->{'date'}).
-	"\t".$self->{'symbol'}."\t".$self->type."\t".main::format_amt($self->{'shares'}->as_float()).
-	"\t".main::format_amt($self->{'price'})."\t".$self->toWashString;
+    &main::convertDaysToText($self->{date}).
+	"\t".$self->{symbol}."\t".$self->type."\t".main::format_amt($self->{shares}).
+	"\t".main::format_amt($self->{price}).
+	"\t".main::format_amt($self->{price}/$self->{shares}).
+	"\t".refs_string($self)."\n";
 }
 
 
