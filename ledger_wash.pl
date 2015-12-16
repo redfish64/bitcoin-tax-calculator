@@ -1054,19 +1054,26 @@ sub figure_trade_base_vals
 #figures the expense given the amount traded and its price
 sub figure_expense_base_amt
 {
-    my($expense_amt, $expense_curr, $amt, $curr, $base_amt,$date, $time, $index) = @_;
+    my($expense_amt,  #amout of expense
+       $expense_curr, #currency of expense
+       $amt,      #amount bought
+       $curr,     #currency of amount bought
+       $base_amt, #expense + amount bought in base currency
+       $date, $time, $index) = @_;
 
     if($expense_curr eq $curr)
     {
-	# e - expense amt
-	# a - amt
-	# r - base_curr / amt_curr
+	# e - expense amt (in expense curr)
+	# a - amt (also in expense curr)
+	# r - ratio from base to amt (base_curr / amt_curr)
 	# b - base amount (in base currency)
 	# (e + a) * r == b
 	# r = b / (e + a)
 	#
-	# e * r = e in base currency
-	
+	# e * r = (e in base currency)
+	# so, e * r = b / (e + a) * r
+
+	#returns the expense amount in the base currency
 	return $base_amt / ($expense_amt + $amt) * $expense_amt;
     }
  
@@ -1096,19 +1103,19 @@ sub figure_trade_base_val_from_other_side
 	# "buying" or "selling" it), we use it as the price we sold/bought the other 
 	# currency at. We use the expenses to determine the effective base price to do this
 	#
-	# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $20
-	# for this transaction. So the total cost is $30, and we received $10 of value.
-	# The expenses store this $20 fee.
-	# So we take the amount it cost us, $30, and subtract the fee, $20, to get the
+	# For example, lets say we bought 10 BTC valued at $1 each. We had a fee of $2
+	# for this transaction. So the total cost is $12, and we received $10 of value.
+	# The expenses store this $2 fee.
+	# So we take the amount it cost us, $12, and subtract the fee, $2, to get the
 	# base value of $10.
 
-	if($sell_curr eq $sell_curr)
+	if($sell_curr eq $base_curr)
 	{
 	    $sell_base_val = $sell_amt;
 	}
 	else
 	{
-	    $sell_base_val = figure_base_curr_price($buy_amt, $buy_curr,
+	    $sell_base_val = figure_base_curr_price($sell_amt, $sell_curr,
 						   $date, $time, $index);
 		
 	}
@@ -1116,26 +1123,26 @@ sub figure_trade_base_val_from_other_side
 	return undef unless defined $sell_base_val;
 	
 	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
-						       $buy_amt, $buy_curr, $sell_amt,
+						       $buy_amt, $buy_curr, $sell_base_val,
 						       $date, $time, $index);
 	
 	(defined $expense_base_amt) or 
 	    error(file => $file, line => $line, tran_text => $tran_text, 
-		  msg => "Expense be in $base_curr or $sell_curr");
+		  msg => "Expense be in $base_curr or $buy_curr");
 	
 	return undef unless defined $expense_base_amt;
 	
 	return $sell_base_val + $expense_base_amt;
     }
-    elsif($type eq 'S')
+    elsif($type eq 'S') #figure the sell amount
     {
-	if($buy_curr eq $buy_curr)
+	if($buy_curr eq $base_curr)
 	{
 	    $buy_base_val = $buy_amt;
 	}
 	else
 	{
-	    $buy_base_val = figure_base_curr_price($sell_amt, $sell_curr,
+	    $buy_base_val = figure_base_curr_price($buy_amt, $buy_curr,
 						   $date, $time, $index);
 		
 	}
@@ -1143,12 +1150,12 @@ sub figure_trade_base_val_from_other_side
 	return undef unless defined $buy_base_val;
 	
 	my $expense_base_amt = figure_expense_base_amt($expense_amt, $expense_curr,
-						       $sell_amt, $sell_curr, $buy_amt,
+						       $sell_amt, $sell_curr, $buy_base_val,
 						       $date, $time, $index);
 	
 	(defined $expense_base_amt) or 
 	    error(file => $file, line => $line, tran_text => $tran_text, 
-		  msg => "Expense be in $base_curr or $buy_curr");
+		  msg => "Expense be in $base_curr or $sell_curr");
 	
 	return undef unless defined $expense_base_amt;
 	

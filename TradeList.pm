@@ -321,7 +321,7 @@ sub printIRSForm
     my $running_gain = $main::ZERO;
     foreach $trade (@{$self->{list}})
     {
-	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long_term : !$is_long_term))
+	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long))
 	{
 	    $running_gain += $trade->getGain() || $main::ZERO;
 	    print getIRSRow($trade, $running_gain)."\n";
@@ -351,10 +351,11 @@ Shares\tSymbol\tBuy Date\tBuy Price\tRefs
     {
 	if($_->type eq "buy" && (!defined $_->{sell}))
 	{
-	    my ($shares, $sym, $buy_price) = ($_->{shares}, $_->{symbol}, $_->{price});
+	    my ($shares, $sym, $date, $buy_price) = ($_->{shares}, $_->{symbol}, $_->{date}, $_->{price});
 	    print join("\t",
 		       main::format_amt($shares),
 		       $sym,
+		       main::convertDaysToText($date),
 		       main::format_amt($buy_price),
 		       $_->refs_string())."\n";
 

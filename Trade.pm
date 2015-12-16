@@ -79,7 +79,7 @@ sub refs_string
 	push @{$file_to_lines{$ref->{file}}}, $ref->{line};
     }
 
-    return join(" ",map { $_.":".join(",",@{$file_to_lines{$_}}) } (sort keys %file_to_lines));
+    return join(" ",map { $_.":".join(",",sort @{$file_to_lines{$_}}) } (sort keys %file_to_lines));
 }
 
 sub toString
