@@ -304,39 +304,61 @@ sub print
     
 }
 
-#prints out the list in the IRS format
-sub printIRS
-{
-    my ($self) = @_;
 
+sub printIRSForm
+{
+    my ($self, $is_long) = @_;
+    
     my $trade;
 
+    my($day, $month, $year)=(localtime)[3,4,5];
+    
     print "
 -------------------------------------------------------
-Short term Trades\n\n";
+".($is_long ? "Long" : "Short")." term Trades\n\n";
     print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
 
     my $running_gain = $main::ZERO;
     foreach $trade (@{$self->{list}})
     {
-	if($trade->type eq "sell" && !$trade->isLongTerm())
+	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long_term : !$is_long_term))
 	{
 	    $running_gain += $trade->getGain() || $main::ZERO;
 	    print getIRSRow($trade, $running_gain)."\n";
 	}
     }
-    print "
--------------------------------------------------------
-Long term Trades\n\n";
-    print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
+}
 
-    $running_gain = $main::ZERO;
-    foreach $trade (@{$self->{list}})
+#prints out the list in the IRS format
+sub printIRS
+{
+    my ($self) = @_;
+ 
+    printIRSForm($self,0);
+    print "
+
+
+";
+    printIRSForm($self,1);
+
+
+    print "
+
+Remaining balances:
+Shares\tSymbol\tBuy Date\tBuy Price\tRefs
+";
+    foreach $_ (@{$self->{list}})
     {
-	if($trade->type eq "sell" && $trade->isLongTerm())
+	if($_->type eq "buy" && (!defined $_->{sell}))
 	{
-	    $running_gain += $trade->getGain() || $main::ZERO;
-	    print getIRSRow($trade, $running_gain)."\n";
+	    my ($shares, $sym, $buy_price) = ($_->{shares}, $_->{symbol}, $_->{price});
+	    print join("\t",
+		       main::format_amt($shares),
+		       $sym,
+		       main::format_amt($buy_price),
+		       $_->refs_string())."\n";
+
+		     
 	}
     }
 }

@@ -207,4 +207,24 @@ sub toIRSString
     return "";
 }
 
+#checks if sell date is more than a year past this buy date
+sub isLongTermToDate
+{
+    my ($self,$sell_date) = @_;
+
+    my $buy_date = main::convertDaysToText($self->{date});
+    
+    my ($byear,$bmonth,$bday) = $buy_date =~ /^(\d{4})-(\d\d)-(\d\d)$/ or die;
+    my ($syear,$smonth,$sday) = $sell_date =~ /^(\d{4})-(\d\d)-(\d\d)$/ or die;
+
+
+    return 1 if($byear <= $syear - 2);
+    return 0 if($byear >= $syear);
+    return 1 if($bmonth < $smonth);
+    return 0 if($bmonth > $smonth);
+    return 1 if($bday < $sday);
+
+    return 0;
+}
+    
 1;
