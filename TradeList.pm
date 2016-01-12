@@ -74,11 +74,19 @@ sub add
 		return;
 	    }
 
-	    #co: allows all trades to be combined regardless of intervening buys/sells
-	    # if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
-	    # {
-	    # 	last;
-	    # }
+	    #allows all trades to be combined regardless of intervening buys/sells
+	    #warning, if you comment this out, then 'income' transactions won't work
+	    #properly, since they create:
+	    # 1. buy for $0
+	    # 2. sell for market price
+	    # 3. buy for market price
+	    #
+	    # So without this, then a trade for sell price and a basis of 
+	    # (buy1 + buy3) / 2 would be created. The actual basis should be zero.
+	    if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
+	    {
+	    	last;
+	    }
 	}
 	else  #other trade
 	{
@@ -321,7 +329,8 @@ sub printIRSForm
     my $running_gain = $main::ZERO;
     foreach $trade (@{$self->{list}})
     {
-	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long))
+	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long) &&
+	    !defined $trade->{not_reported})
 	{
 	    $running_gain += $trade->getGain() || $main::ZERO;
 	    print getIRSRow($trade, $running_gain)."\n";
@@ -395,13 +404,13 @@ sub getIRSRow
     return (join("\t",
 		 main::format_amt($shares),
 		 $trade->{symbol},
-		 &main::convertDaysToText($trade->{date}),
 		 $buyDate,
+		 &main::convertDaysToText($trade->{date}),
 		 main::format_amt($sellPrice),
 		 main::format_amt($buyPrice),
 		 main::format_amt($sellPrice - $buyPrice),
 		 main::format_amt($running_gain),
-		 $trade->refs_string(),
+		 "S: ".$trade->refs_string()." B: ".$buy->refs_string()
 	    ));
 }
 
