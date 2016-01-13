@@ -1,6 +1,7 @@
 package Trade;
 
 # Copyright 2012 Rareventure, LLC
+# Copyright 2015,2016 Rareventure, LLC
 #
 # This file is part of Bitcoin Tax Calculator
 # Bitcoin Tax Calculator is free software: you can redistribute it and/or modify
@@ -62,6 +63,10 @@ sub combine
 
     $self->{shares} += $other->{shares};
     $self->{price} += $other->{price};
+    if(defined $self->{not_reported})
+    {
+	$self->{not_reported} = $other->{not_reported};
+    }
 
     push @{$self->{refs}}, @{$other->{refs}};
 
@@ -72,14 +77,53 @@ sub refs_string
 {
     my ($t) = @_;
 
-    my %file_to_lines;
+    my %file_to_lines_and_index;
 
     foreach my $ref (@{$t->{refs}})
     {
-	push @{$file_to_lines{$ref->{file}}}, $ref->{line};
+	push @{$file_to_lines_and_index{$ref->{file}}}, [$ref->{line},
+							 $ref->{index}];
     }
 
-    return join(" ",map { $_.":".join(",",sort @{$file_to_lines{$_}}) } (sort keys %file_to_lines));
+    return join(" ",map { $_.":".
+			      sub { 
+				  my $res = "";
+				  my $last_index;
+				  my ($last_line, $first_line);
+				  my ($line,$index);
+				  
+				  foreach my $li (@_,[-1,-1])
+				  {
+				      my ($line,$index) = @$li;
+				      if(!defined $last_index)
+				      {
+					  $res .= $line;
+					  $first_line = $line;
+					  $last_index = $index;
+					  $last_line = $line;
+				      }
+				      elsif($index -1 == $last_index)
+				      {
+					  $last_index = $index;
+					  $last_line = $line;
+				      }
+				      else
+				      {
+					  if($last_line == $first_line)
+					  {
+					      $res .= ",";
+					  }
+					  else
+					  {
+					      $res .= "-$last_line,";
+					  }
+					  $last_index = undef;
+				      }
+				  }
+				  chop $res;
+				  $res; 
+			  }->(sort {$a->[0] <=> $b->[0]} @{$file_to_lines_and_index{$_}}) }
+		(sort keys %file_to_lines_and_index));
 }
 
 sub toString

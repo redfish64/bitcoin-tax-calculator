@@ -2,6 +2,7 @@
 package Buy;
 
 # Copyright 2012 Rareventure, LLC
+# Copyright 2015,2016 Rareventure, LLC
 #
 # This file is part of Bitcoin Tax Calculator
 # Bitcoin Tax Calculator is free software: you can redistribute it and/or modify

@@ -3,6 +3,7 @@ package Sell;
 
 
 # Copyright 2012 Rareventure, LLC
+# Copyright 2015,2016 Rareventure, LLC
 #
 # This file is part of Bitcoin Tax Calculator
 # Bitcoin Tax Calculator is free software: you can redistribute it and/or modify
@@ -35,6 +36,7 @@ sub new
     
     $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);
 
+    $self->{not_reported} = $not_reported;
     $self->init();
 
     $self;

@@ -1,8 +1,9 @@
 #!/usr/bin/perl -w
 
-#TODO 2: Change Copyright to 2012, 2015 for all files
+#TODO 2: Change Copyright to 2012, 2015-2016 for all files
 
 # Copyright 2012 Rareventure, LLC
+# Copyright 2015,2016 Rareventure, LLC
 #
 # This file is part of Bitcoin Tax Calculator
 # Bitcoin Tax Calculator is free software: you can redistribute it and/or modify
@@ -28,9 +29,9 @@
 
 if(@ARGV == 0)
 {
-    print "Usage $0 -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  <dat file1> [dat file2...]
+    print "Usage perl ledger_wash.pl -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  <dat file1> [dat file2...]
 
-Reads a ledger style file and creates a capital gains report using the FIFO method, including the calculation of wash sales.
+Reads a ledger style file (see http://www.ledger-cli.org/) and creates a capital gains report using the FIFO method.
 
 This program will look for any transaction where two different currencies are included in a transaction,
 and are both designated within accounts you own (ex. USD and BTC, or BTC and ETH). These transactions
@@ -43,16 +44,18 @@ Accounts are split into three categories. Assets, Expenses and Income.
 
 Assets are accounts you own and you wish to calculate capital gains for. Note that you'll probably
  want to include liability accounts in this category, since paying down a CC is really the addition
- to a negative asset.
+ to a negative asset (if you pay your credit card with a cryptocurrency, that is)
 Income are accounts from which you receive an Asset. For example, if you mine bitcoin and you have
     an 'Income:Mining' account.
 Expenses are accounts where expenses go. When expenses are one or more of the outputs for trades or
     income transactions, they are deducted from the capital gains received. In any other transaction,
-    (such as those associated with transferring assets around), they are ignored.
+    (such as those associated with transferring assets around), they are ignored for reporting,
+    but still kept track of, so that funds spent in expenses don't appear as a basis for sells.
 
-<assets regex> : Regex for when an account should be included in Assets
-<income regex> : Same as above, but for Income accounts 
-<expenses regex> : Same as above, but for Expenses accounts 
+<assets regex> : Regex for when an account should be included in Assets (default '^Assets' which means 
+   begins with Assets)
+<income regex> : Same as above, but for Income accounts (default '^Income')
+<expenses regex> : Same as above, but for Expenses accounts (default '^Expesnses')
 
 If an account matches two or more of the above, it will be considered an error.
 
@@ -267,7 +270,7 @@ create_tax_items();
 
 $tl->checkWashesAndAssignBuysToSells;
 
-$tl->print;
+#$tl->print;
 print "------------------------------------\n";
 $tl->printIRS;
 print "------------------------------------\n";
@@ -515,7 +518,7 @@ sub error
 
 sub add_tran
 {
-    my ($date, $time, $index, $desc, $line, $file, $tran_text, @account_lines) = @_;
+    my ($date, $time, $index, $desc, $line, $file,$tran_text, @account_lines) = @_;
 
     #if there are no accounts, there is no transaction
     if(@account_lines == 0)
