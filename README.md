@@ -3,7 +3,7 @@ bitcoin-tax-calculator
 
 Calculates capital gains taxes for ledger style cryptocurrency trades (doesn't compute wash sales, see https://www.reddit.com/r/Bitcoin/comments/2qar39/i_am_a_tax_attorney_here_are_my_answers_to_common/ question 9 ... has this functionality in the code, but disabled for now)
 
-Usage perl ledger_wash.pl -a (assets regexp) -i (income regexp) -e (expenses regexp) -bc (base currency (usually \$ or USD)) [-accuracy (decimal accuracy, defaults to 20 places)]  (dat file1) [dat file2...]
+Usage perl ledger_wash.pl -a (assets regexp) -i (income regexp) -e (expenses regexp) -bc (base currency (usually \$ or USD)) \[-accuracy (decimal accuracy, defaults to 20 places)\]  (dat file1) \[dat file2...\]
 
 Reads a ledger style file (see http://www.ledger-cli.org/) and creates a capital gains report using the FIFO method.
 
