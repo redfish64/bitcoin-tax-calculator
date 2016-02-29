@@ -373,10 +373,17 @@ sub create_tax_items
 	    #first create a buy for 0 (since we acquired it through normal means, such as mowing lawns,
 	    # etc., and according to the IRS your man-hours are worth *nothing*, as further demonstrated 
 	    # by the incredible complexity and vagueness of the tax rules)
-	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $ZERO, $curr, [$t]));
+	    my $income_buy = new Buy(&main::convertTextToDays($date), $amt, $ZERO, $curr, [$t]);
+	    $tl->add($income_buy);
 
 	    #sell it at market price to report the gains
-	    $tl->add(new Sell(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
+	    my $income_sell = new Sell(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]);
+	    $tl->add($income_sell);
+
+	    #join the buy and sell ahead of time, so the income line cost basis will always be
+	    #zero. Otherwise it will use its standard matching algorithm, which means that the buy 
+	    #assigned might be from an earlier purchase.
+	    $income_buy->markBuyForSell($income_sell);
 
 	    #finally, rebuy it
 	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
