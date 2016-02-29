@@ -685,10 +685,10 @@ sub binary_search {
 	}
     }
 
-    # the index at which the key was found, or -n-1 if it was not
-    # found, where n is the index of the first value higher than key or
+    # returns the index at which the key was found, or -n-1 if it was not
+    # found, where n is the index of the first value greater than key or
     # length if there is no such value.
-    return -$middle-1;
+    return -$left-1;
 }
 
 sub compare_date_time_index($$)
@@ -732,7 +732,7 @@ sub figure_base_curr_price
     }
 
     #pos = -n-1
-    #we want n-1
+    #we want n-1, which is the index prior to the target in the order sorted by compare_date_time_index
     #n = -1 -pos
     #n - 1 = -2 -pos
     $pos = -2-$pos;
@@ -750,11 +750,12 @@ sub figure_base_curr_price
 	sub {
 	    my ($pos, $dir, $test) = @_;
 	    
-	    #first search backwards
-	    while(1)
+	    #search in the direction specified until $test returns not false, or the date
+	    #isn't the current date
+	    while($pos >= 0 && $pos <= $#{$pq})
 	    {
 		my $r = $pq->[$pos];
-	
+
 		if($r->{date} ne $date)
 		{
 		    last;
@@ -764,6 +765,8 @@ sub figure_base_curr_price
 
 		$pos += $dir;
 	    }
+
+	    undef;
     };
 
     my $base_curr_test =
