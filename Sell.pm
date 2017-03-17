@@ -32,6 +32,7 @@ use Trade;
 
 sub new
 {
+    #not_reported - if set, won't appear on irs sells
     my ($class, $date, $shares, $price, $symbol, $refs, $not_reported) = @_;
     
     $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);

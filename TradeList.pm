@@ -101,8 +101,8 @@ sub add
     push @{$list}, $trade;
 }
 
-#check for wash sales, must be done after all adds
-sub checkWashesAndAssignBuysToSells
+#assigns buys to sells
+sub assignBuysToSells
 {
     my ($self) = @_;
 
@@ -175,117 +175,6 @@ sub checkWashesAndAssignBuysToSells
 	}
     }
 
-    #we don't worry about wash sales anymore, they don't apply to virtual currency, it seems!
-    return;
-    
-    print STDERR "Identifying wash sales\n";
-
-    my $do_print ;    
-     for($j = 0; $j < (@{$list}); $j++)
-     {
-	 my $sell = $list->[$j];
-
-	 $do_print = 1 if $j % 50 == 0;
-   
-	if($sell->type eq "sell" && !$sell->{washBuy})
-	{
-	    
-#3. Find buy which is not a wash for any sell and is not the buy for *this* sell and has been traded within
-#   the 61 day gap. Mark this as a wash buy, and count the shares as wash shares for the sell. 
-#    May have to split buys, or sell as part wash/part non-wash.
-#   Only do this if sell is a loss
-	    
-	    my $gain = $sell->getGain();
-	    #print "gain is $gain\n";
-	    
-	    if($gain < 0)
-	    {
-		for($i = 0;$i < @{$list}; $i ++)
-		{
-		    $buy = $list->[$i];
-		    
-		    #if we've gone past the wash sale interval
-		    if($buy->{date} > $sell->{date} + 30)
-		    {
-			last;
-		    }
-
-		    my $buy_top;
-		    if($buy->type eq "buy" && $buy->{symbol} eq $sell->{symbol} 
-		       && $buy->{date} >= $sell->{date} - 30 
-		       && ($buy_top = find_chain_top($buy)) != $sell && ! $buy->isWash()
-
-		       #this last line is very important, but hard to comprehend
-		       #the issue is that if you can wash sale and resell on the same
-		       #day you will end up with a huge number of washes for a very
-		       #tiny trades. This is because every time you make a tiny trade
-		       #it eats a little bit from the big trades around it, but the
-		       #result is ultimately another buy/sell pair that has to again
-		       #be checked and rewashed. This goes in a nearly endless circle
-		       #over and over again
-		       #
-		       #example, the following will end up with 200 wash sale lines without
-		       #this condition
-
-# 2015-08-12 11:08:00
-#   Assets:Kraken     -$ 10
-#   Assets:Kraken     2 ETH
-#   Expenses:Fees     $ 0.01
-#   Expenses:Fees     0.0000000000 ETH
-
-# 2015-08-13 07:23:41
-#   Assets:Wallet:ethereum     -0.01 ETH
-#   Expenses:Fees:Gas
-
-# 2015-08-15 11:08:00
-#   Assets:Kraken     $ 5
-#   Assets:Kraken     -1.99 ETH
-#   Expenses:Fees     $ 0.01
-#   Expenses:Fees     0.0000000000 ETH
-
-		       && $buy_top->type eq "sell" && $buy_top->{date} != $sell->{date}
-			)
-		    {
-			if($do_print)
-			{
-			    print STDERR "$j out of ".($#{$list}+1)." trades ... (and growing)";
-
-			    print STDERR "Buy:\n".debug_str($buy);
-			    print STDERR "Sell:\n".debug_str($sell);
-				
-			    $do_print = undef;
-			}
-	 
-			#allocates the shares as a wash to the sell(this may split the buy into two or
-			#split the sell in two)
-
-			verify_buy_sell_chain($buy_top);
-			verify_buy_sell_chain($sell);
-
-			if($buy->{shares} > $sell->{shares})
-			{
-			    my $split = $buy_top->split($self, $sell->{shares});
-			    verify_buy_sell_chain($split);
-			    $buy_top == find_chain_top($buy) or die;
-			}
-			elsif($sell->{shares} > $buy->{shares})
-			{
-			    my $split = $sell->split($self, $buy->{shares});
-			    verify_buy_sell_chain($split);
-			}
-
-			$buy->markAsWash($sell);
-
-			verify_buy_sell_chain($buy_top);
-			verify_buy_sell_chain($sell);
-			
-			last;
-		    }
-		} #for each trade in list
-	    } #if sell was a loss
-	} #if type was a sell
-     } #for each trade in list
-    
 }
 
 #prints out the list in the internal data format
@@ -316,7 +205,7 @@ sub print
 
 sub printIRSForm
 {
-    my ($self, $is_long) = @_;
+    my ($self, $is_long, $trades) = @_;
     
     my $trade;
 
@@ -328,7 +217,7 @@ sub printIRSForm
     print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
 
     my $running_gain = $main::ZERO;
-    foreach $trade (@{$self->{list}})
+    foreach $trade (@$trades)
     {
 	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long) &&
 	    !defined $trade->{not_reported})
@@ -342,38 +231,54 @@ sub printIRSForm
 #prints out the list in the IRS format
 sub printIRS
 {
-    my ($self) = @_;
+    my ($self, $trades) = @_;
+
+    if(!defined $trades)
+    {
+	$trades = $self->{list};
+    }
  
-    printIRSForm($self,0);
+    printIRSForm($self,0, $trades);
     print "
 
 
 ";
-    printIRSForm($self,1);
+    printIRSForm($self,1, $trades);
+}
 
-
+sub printRemainingBalances
+{
+    my ($self) = @_;
+ 
     print "
 
 Remaining balances:
 Shares\tSymbol\tBuy Date\tBuy Price\tRefs
 ";
-    foreach $_ (@{$self->{list}})
+    foreach $_ ($self->getUnsoldBuys)
     {
-	if($_->type eq "buy" && (!defined $_->{sell}))
-	{
-	    my ($shares, $sym, $date, $buy_price) = ($_->{shares}, $_->{symbol}, $_->{date}, $_->{price});
-	    print join("\t",
-		       main::format_amt($shares),
-		       $sym,
-		       main::convertDaysToText($date),
-		       main::format_amt($buy_price),
-		       $_->refs_string())."\n";
-
-		     
-	}
+	my ($shares, $sym, $date, $buy_price) = ($_->{shares}, $_->{symbol}, $_->{date}, $_->{price});
+	print join("\t",
+		   main::format_amt($shares),
+		   $sym,
+		   main::convertDaysToText($date),
+		   main::format_amt($buy_price),
+		   $_->refs_string())."\n";
+	
+	
     }
 }
 
+
+sub getUnsoldBuys
+{
+    my ($self) = @_;
+
+    return grep {$_->type eq "buy" && (!defined $_->{sell})} (@{$self->{list}});
+}
+    
+
+    
 
 sub getIRSRow
 {

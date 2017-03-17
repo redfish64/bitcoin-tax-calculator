@@ -29,7 +29,7 @@
 
 if(@ARGV == 0)
 {
-    print "Usage perl ledger_wash.pl -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  <dat file1> [dat file2...]
+    print "Usage perl ledger_wash.pl -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  [-unr-date <unrealized cap gain date>] <dat file1> [dat file2...]
 
 Reads a ledger style file (see http://www.ledger-cli.org/) and creates a capital gains report using the FIFO method.
 
@@ -74,6 +74,8 @@ If a time is present after the date, ex:
 
 the time will be used to sort transactions. Otherwise, transactions on the same day will be sorted in the
 order specified in the file(s).
+
+If unr_date is specified, then the total unrealized long term and short term gains are reported as of the given date. Prices for the held currencies on that date must be available
 ";
 
     exit -1;
@@ -88,13 +90,16 @@ my ($assets_reg,
     $income_reg,
     $expenses_reg,
     $base_curr, 
-    $accuracy
-    ) = ('^Assets', '^Income', '^Expenses', '$', 20);
+    $accuracy,
+    $unr_date
+    ) = ('^Assets', '^Income', '^Expenses', '$', 20, undef);
 
 GetOptions ("assets=s" => \$assets_reg,    
 	    "income=s"   => \$income_reg,  
 	    "expenses=s"  => \$expenses_reg,
-	    "basecurr=s" => \$base_curr)
+	    "basecurr=s" => \$base_curr,
+	    "unr-date=s" => \$unr_date,
+    )
     or die("Error in command line arguments\n");
 
 use Math::BigRat;
@@ -123,15 +128,21 @@ our @trades; #the list of trades sent to the capital gain logic
 
 our $file_prefix = $ARGV[0];
 
+if((defined $unr_date) && !($unr_date =~ $date_reg))
+{
+    die "Can't understand unr-date '$unr_date'";
+}
+
 foreach $curr_file (@ARGV)
 {
     while(!($curr_file =~ /^\Q$file_prefix\E/)) { chop $file_prefix; }
 }
 
+my $tran_index = 0;
+
 {
     my (@account_lines, %curr_datetime_to_price_quote_data);
     
-    my $tran_index = 0;
     foreach $curr_file (@ARGV)
     {
 	my $f = new IO::File;
@@ -246,14 +257,15 @@ foreach $curr_file (@ARGV)
 		error(txt=>$curr_text, msg => "Account $account matches both income and expenses at the same time") if $account =~ /${expenses_reg}/ && $account =~ /{$income_reg}/;
 		error(txt=>$curr_text, msg => "Account $account matches both assets and expenses at the same time") if $account =~ /${expenses_reg}/ && $account =~ /{$assets_reg}/;
 	    }
-	}
+	}# for each line of text
 
+	#at end of file, so add final transaction
 	add_tran($date, $time, $tran_index, $desc, $curr_tran_line, $curr_tran_file,
 		 [@curr_tran_text], @account_lines);
-    }
+    } # foreach file
 }
 
-@trades = sort compare_date_time_index @trades;
+sort_trades();
 
 foreach $curr (keys %curr_to_price_quotes)
 {
@@ -268,13 +280,66 @@ foreach $curr (keys %curr_to_price_quotes)
 
 create_tax_items();
 
-$tl->checkWashesAndAssignBuysToSells;
+$tl->assignBuysToSells;
 
 #$tl->print;
 print "------------------------------------\n";
 $tl->printIRS;
+$tl->printRemainingBalances;
 print "------------------------------------\n";
 
+#if we are tasked to calculate the long term and short term gains if we sold on a particular date
+if($unr_date)
+{
+    #add fake sells for each buy on the unrealized date
+
+    my $d = &main::convertTextToDays($unr_date);
+
+    my @sells;
+
+    foreach my $buy ($tl->getUnsoldBuys())
+    {
+	{
+	    my ($shares, $sym, $date, $buy_price) = ($buy->{shares}, $buy->{symbol}, $buy->{date}, $buy->{price});
+	    print "HACK: ".join("\t",
+		   main::format_amt($shares),
+		   $sym,
+		   main::convertDaysToText($date),
+		   main::format_amt($buy_price),
+				$buy->refs_string())."\n";
+	}
+	
+	if($buy->{date} > $d) { die "unrealized cap gains sell date '$d', earlier than buy date, ".
+				    $buy->{date}."\n"; }
+
+	my $sell_price = figure_base_curr_price($buy->{shares},$buy->{symbol}, $unr_date,"00:00:00",++$tran_index);
+
+	if(!defined $sell_price)
+	{
+	    die "Couldn't figure sell price for ".$buy->{symbol}." on $unr_date";
+	}
+
+	my $sell = new Sell($d, $buy->{shares}, $sell_price, $buy->{symbol}, []);
+
+	push @sells, $sell;
+
+	#TODO a big hack here. We aren't calling $tl->add because that would
+	#possibly combine the sell, and we don't want that
+	push @{$tl->{list}}, $sell;
+
+	$buy->markBuyForSell($sell);
+    }
+
+    print "\n\n*** Unrealized gains sold on $unr_date ***\n\n";
+
+    $tl->printIRS(\@sells);
+}
+
+
+sub sort_trades
+{
+    @trades = sort compare_date_time_index @trades;
+}
 
 
 sub create_tax_items
@@ -592,6 +657,7 @@ sub add_tran
 		curr => $acurr};
 	}
 	elsif($_ == 2) # two currencies mean a trade
+#TODO 2: This is not always true! See the LSK transaction in test.dat (right now generates an error)
 	{
 	    my ($curr1,$amt1,$curr2,$amt2) =  ag_get_curr_amt($asset_ag);
 
@@ -608,8 +674,7 @@ sub add_tran
 	    else {
 		error(file => $file, line => $line, tran_text => $tran_text, msg => "The expense account may contain only one currency");
 	    }
-	    
-
+           
 	    $amt1 < 0 && $amt2 > 0 || $amt1 > 0 && $amt2 < 0 or
 		error(file => $file, line => $line, tran_text => $tran_text, msg => "If not an income transaction, and contains two currencies, then there must be a positive and negative amount");
 
@@ -650,7 +715,6 @@ sub add_tran
 	#no-op
     }
 }
-
 
 sub add_price_quote
 {
