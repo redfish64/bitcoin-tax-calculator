@@ -314,13 +314,13 @@ if($unr_date)
     {
 	{
 	    my ($shares, $sym, $date, $buy_price) = ($buy->{shares}, $buy->{symbol}, $buy->{date}, $buy->{price});
-	    print "HACK: ".join("\t",
-		   main::format_amt($shares),
-		   $sym,
-		   main::convertDaysToText($date),
-		   main::format_amt($buy_price),
-				$buy->refs_string())."\n";
-	}
+	    # print "HACK: ".join("\t",
+	    # 	   main::format_amt($shares),
+	    # 	   $sym,
+	    # 	   main::convertDaysToText($date),
+	    # 	   main::format_amt($buy_price),
+	    # 			$buy->refs_string())."\n";
+	}			
 	
 	if($buy->{date} > $d) { die "unrealized cap gains sell date '$d', earlier than buy date, ".
 				    $buy->{date}."\n"; }
