@@ -99,6 +99,7 @@ sub add
 
     #we have to add it to the end of the list
     push @{$list}, $trade;
+
 }
 
 #assigns buys to sells
@@ -216,15 +217,53 @@ sub printIRSForm
 ".($is_long ? "Long" : "Short")." term Trades\n\n";
     print "Shares\tSymbol\tBuy Date\tSell Date\tSell Price\tBuy Price\tGain\tRunning Total Gain\tRefs\n";
 
+    my %vals_per_symbol;
     my $running_gain = $main::ZERO;
     foreach $trade (@$trades)
     {
+	my $symbol = $trade->{symbol};
+	
 	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long) &&
 	    !defined $trade->{not_reported})
 	{
 	    $running_gain += $trade->getGain() || $main::ZERO;
 	    print getIRSRow($trade, $running_gain)."\n";
+	    $vals = $vals_per_symbol{$symbol};
+	    if(!defined $vals) {
+		#shares,sell price, buy price, gain
+		$vals = [$main::ZERO,$main::ZERO,$main::ZERO,$main::ZERO];
+		$vals_per_symbol{$symbol} = $vals;
+	    }
+	    my $buy = $trade->{buy};
+	    my $shares = $trade->{shares};
+	    my $sellPrice = $trade->{price};
+	    
+	    $vals->[0]+= $shares;
+	    $vals->[1]+= $sellPrice;
+
+	    if(defined $buy)
+	    {
+		my $buyPrice = $buy->getBasis();
+		$vals->[2] += $buyPrice;
+		$vals->[3] += $sellPrice - $buyPrice;
+	    }
 	}
+    }
+
+    print "
+-------------------------------------------------------
+".($is_long ? "Long" : "Short")." term Totals\n\n";
+    print "Symbol\tShares\tSell Price\tBuy Price\tGain\n";
+
+    foreach my $sym (sort (keys %vals_per_symbol))
+    {
+	my $vals = $vals_per_symbol{$sym};
+	print join("\t",
+		   $sym,
+		   main::format_amt($vals->[0]),
+		   main::format_amt($vals->[1]),
+		   main::format_amt($vals->[2]),
+		   main::format_amt($vals->[3]))."\n";
     }
 }
 

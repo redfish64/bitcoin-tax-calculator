@@ -233,21 +233,34 @@ my $tran_index = 0;
 	    }
 	    else
 	    {
+		#    Assets:Bank:Unknown	  $2574.59 @@ 5.0000 BTC
 		#    Assets:MtGox                  -17.51286466 BTC @ $ 110.10000
 		#    Assets:MtGox                  $ 1916.59740
-		my ($account, $amt_curr, $price_amt_curr) = 
-		    $curr_text =~ /^\s+((?:[^\s]| [^\s])+)(?:[  \s|\t]\s*(${amt_curr_reg})(?: @ (${amt_curr_reg}))?)?$/ 
+		my ($account, $amt_curr, $at_or_atat, $price_amt_curr) = 
+		    $curr_text =~ /^\s+((?:[^\s]| [^\s])+)(?:[  \s|\t]\s*(${amt_curr_reg})(?: (@@?) (${amt_curr_reg}))?)?$/ 
 		    or error(txt=>$curr_text, msg => "Can't read account line");
 
 		my ($amt,$curr) = parse_amt_curr($amt_curr) if $amt_curr;
 
-		my ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
+		my ($price_amt, $price_curr);
+
+		if ($price_amt_curr)
+		{ 
+		    ($price_amt, $price_curr) = parse_amt_curr($price_amt_curr) if $price_amt_curr;
+
+		    $price_amt = bigrat($price_amt);
+		    
+		    if($at_or_atat eq "@@")
+		    {
+			$price_amt = $price_amt / $amt;
+		    }
+		}
 
 		#push all lines except those with a specified zero value,ex:
 		# Assets:xxxx     0.0000 ETH
 		$amt_curr && $amt == 0 or
 		    push @account_lines, { acct => $account, amt => bigrat($amt), 
-					   curr => $curr, price_amt => bigrat($price_amt),
+					   curr => $curr, price_amt => $price_amt,
 					   price_curr => $price_curr
 		};
 		
@@ -1005,7 +1018,7 @@ sub normalize_date
 {
     my ($date) = @_;
 
-    my ($y,$m,$d) = $date =~ /(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/ or die;
+    my ($y,$m,$d) = $date =~ /(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/ or die "Can't read date '$date'";
 
     return sprintf('%04d-%02d-%02d',$y,$m,$d);
 }
