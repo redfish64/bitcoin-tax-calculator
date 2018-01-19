@@ -56,7 +56,10 @@ sub combine
     my($self, $other) = @_;
 
 #    print STDERR "Trying to combine $self->{symbol}, $other->{symbol}, ".$self->type.", ".$other->type."\n";
-    if ($self->{date} != $other->{date} || $self->{symbol} ne $other->{symbol} || $self->type ne $other->type)
+    if ($self->{date} != $other->{date} || $self->{symbol} ne $other->{symbol} || $self->type ne $other->type 
+	|| (defined $self->{buy}) || (defined $self->{sell}) 
+	|| (defined $other->{buy}) || (defined $other->{sell}) 
+	)
     {
 	return 0; #unable to combine
     }

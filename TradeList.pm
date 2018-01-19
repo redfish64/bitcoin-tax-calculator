@@ -51,55 +51,90 @@ sub insertAfter
     }
 }
 
+#adds a transaction to the tradelist. Actual transaction is returned.
+#
+# refs - References to the file and line number of the trade
+# not_reported - if set, transaction will not appear in final output for irs.
+#   not applicable for buys. Used for transfers to different accounts where a small amount is lost
+#   due to transaction fees.
+# unique - if specified, then the trade cannot be merged with nearby trades.
+#   Otherwise, trades on the same day of the same type that appear consecutively will be
+#   merged (to prevent over long and complex returns)
+#
 #adds must be done in chronological order
+#
+#Transaction added is returned, or if the transaction was merged into another,
+#the tran representing the combined result is returned.
 sub add
 {
-    my ($self, $trade) = @_;
+    my ($self, $type_b_or_s, $date, $shares, $price, $symbol, $refs, $is_reported, $unique) = @_;
+
+    my $trade;
+
+    if($type_b_or_s eq "b")
+    {
+	$trade = new Buy($date,$shares,$price,$symbol,$refs);
+    }
+    elsif($type_b_or_s eq "s")
+    {
+	$trade = new Sell($date,$shares,$price,$symbol,$refs,$is_reported);
+    }
+    else {
+	die "Can't understand type: $type_b_or_s";
+    }
 
     my $list = $self->{list};
 
     #try to combine with previous trades
     $pos = $#{$list};
 
-    while($pos >= 0)
+    #some trades are unique, which means they can't be combined
+    #This would include income transactions, because after we add
+    #it, we assign the buy to the sell immediately. If we allowed the
+    #trade to be combined, then the buy would be marked to the wrong sell
+    if(!$unique)
     {
-	my $otherTrade = $list->[$pos];
-
-	#if it was on the same day and there aren't any intervening opposite transactions
-	#(ie buy for sell, sell for buy)
-	if($otherTrade->{date} eq $trade->{date})
+	while($pos >= 0)
 	{
-	    if($otherTrade->combine($trade))
+	    my $otherTrade = $list->[$pos];
+	    
+	    #if it was on the same day and there aren't any intervening opposite transactions
+	    #(ie buy for sell, sell for buy)
+	    if($otherTrade->{date} eq $trade->{date})
 	    {
-		#if we successfully combined it with another trade, we're done
-		return;
+		if($otherTrade->combine($trade))
+		{
+		    #if we successfully combined it with another trade, we're done
+		    return $otherTrade;
+		}
+		
+		#does not allow trades to be combined if there are  intervening buys/sells
+		#warning, if you comment this out, then 'income' transactions won't work
+		#properly, since they create:
+		# 1. buy for $0
+		# 2. sell for market price
+		# 3. buy for market price
+		#
+		# So without this, then a trade for sell price and a basis of 
+		# (buy1 + buy3) / 2 would be created. The actual basis should be zero.
+		if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
+		{
+		    last;
+		}
 	    }
-
-	    #allows all trades to be combined regardless of intervening buys/sells
-	    #warning, if you comment this out, then 'income' transactions won't work
-	    #properly, since they create:
-	    # 1. buy for $0
-	    # 2. sell for market price
-	    # 3. buy for market price
-	    #
-	    # So without this, then a trade for sell price and a basis of 
-	    # (buy1 + buy3) / 2 would be created. The actual basis should be zero.
-	    if($otherTrade->{symbol} eq $trade->{symbol} && $otherTrade->type ne $trade->type)
+	    else  #other trade
 	    {
-	    	last;
+		last;
 	    }
+	    
+	    $pos--;
 	}
-	else  #other trade
-	{
-	    last;
-	}
-
-	$pos--;
     }
 
     #we have to add it to the end of the list
     push @{$list}, $trade;
 
+    return $trade;
 }
 
 #assigns buys to sells
@@ -124,9 +159,11 @@ sub assignBuysToSells
 	
 	my $sell = $list->[$j];
 
+	#print STDERR "Working on trade ".$sell->toString."\n";
 	#if the trade is a sell
 	if($sell->type eq "sell" && !(defined $sell->{buy}))
 	{
+	    #print STDERR "Working on sell ".$sell->toString."\n";
 #2. Find first buy which has not been allocated as a buy for any sell. 
 #   Continue this process until all shares of the sells have a buy. Last buy may have to be split 
 #   into two buys.
@@ -141,15 +178,18 @@ sub assignBuysToSells
 		#if buy is the same symbol as sell and hasn't already been allocated as a buy for another sell
 		if($buy->type eq "buy" && $buy->{symbol} eq $sell->{symbol} && !(defined $buy->{sell}))
 		{
+		    print STDERR "Found buy ".$buy->toString."\n";
 		    verify_buy_sell_chain($buy);
 		    verify_buy_sell_chain($sell);
 			
 		    if($buy->{shares} > $sell->{shares})
 		    {
+			print STDERR "Split buy\n";
 			$buy->split($self, $sell->{shares});
 		    }
 		    elsif($sell->{shares} > $buy->{shares})
 		    {
+			print STDERR "Split sell\n";
 			$sell->split($self, $buy->{shares});
 		    }
 

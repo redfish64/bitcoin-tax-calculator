@@ -91,14 +91,16 @@ my ($assets_reg,
     $expenses_reg,
     $base_curr, 
     $accuracy,
-    $unr_date
-    ) = ('^Assets', '^Income', '^Expenses', '$', 20, undef);
+    $unr_date,
+    $unr_reg
+    ) = ('^Assets', '^Income', '^Expenses', '$', 20, undef, '^Assets');
 
 GetOptions ("assets=s" => \$assets_reg,    
 	    "income=s"   => \$income_reg,  
 	    "expenses=s"  => \$expenses_reg,
 	    "basecurr=s" => \$base_curr,
 	    "unr-date=s" => \$unr_date,
+	    "unr-reg=s" => \$unr_reg,
     )
     or die("Error in command line arguments\n");
 
@@ -393,19 +395,17 @@ sub create_tax_items
 	    {
 		if($amt < 0)
 		{
-		    $tl->add(new Sell(&main::convertTextToDays($date), -$amt, $ZERO,$t->{curr}, [$t],
+		    $tl->add("s", &main::convertTextToDays($date), -$amt, $ZERO,$t->{curr}, [$t],
 				      #!defined $base_val
 				      1
-			     )
-			);
+			     ) ;
 		}
 		else
 		{
-		    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
+		    $tl->add("b",&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
 				     #!defined $base_val
 				     1
-			     )
-			);
+			     ) ;
 		}
 
 	    }
@@ -419,11 +419,11 @@ sub create_tax_items
 
 	    if($buy_amt != 0 && $buy_curr ne $base_curr)
 	    {
-		$tl->add(new Buy(&main::convertTextToDays($date), $buy_amt, $buy_base_val,$buy_curr, [$t]));
+		$tl->add("b",&main::convertTextToDays($date), $buy_amt, $buy_base_val,$buy_curr, [$t]);
 	    }
 	    if($sell_amt != 0 && $sell_curr ne $base_curr)
 	    {
-		$tl->add(new Sell(&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t]));
+		$tl->add("s",&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t]);
 	    }
 	}
 	elsif($t->{type} eq 'income')
@@ -451,12 +451,10 @@ sub create_tax_items
 	    #first create a buy for 0 (since we acquired it through normal means, such as mowing lawns,
 	    # etc., and according to the IRS your man-hours are worth *nothing*, as further demonstrated 
 	    # by the incredible complexity and vagueness of the tax rules)
-	    my $income_buy = new Buy(&main::convertTextToDays($date), $amt, $ZERO, $curr, [$t]);
-	    $tl->add($income_buy);
+	    my $income_buy = $tl->add("b",&main::convertTextToDays($date),$amt,$ZERO,$curr, [$t],undef,1);
 
 	    #sell it at market price to report the gains
-	    my $income_sell = new Sell(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]);
-	    $tl->add($income_sell);
+	    my $income_sell = $tl->add("s",&main::convertTextToDays($date), $amt, $base_val,$curr, [$t],undef,1);
 
 	    #join the buy and sell ahead of time, so the income line cost basis will always be
 	    #zero. Otherwise it will use its standard matching algorithm, which means that the buy 
@@ -464,7 +462,7 @@ sub create_tax_items
 	    $income_buy->markBuyForSell($income_sell);
 
 	    #finally, rebuy it
-	    $tl->add(new Buy(&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]));
+	    $tl->add("b",&main::convertTextToDays($date), $amt, $base_val,$curr, [$t]);
 	}
 	else {
 	    die "What is $t->{type}?";
@@ -689,7 +687,7 @@ sub add_tran
 	    }
            
 	    $amt1 < 0 && $amt2 > 0 || $amt1 > 0 && $amt2 < 0 or
-		error(file => $file, line => $line, tran_text => $tran_text, msg => "If not an income transaction, and contains two currencies, then there must be a positive and negative amount");
+		error(file => $file, line => $line, tran_text => $tran_text, msg => "If a transfer or trade, and contains two currencies, then there must be a positive and negative amount");
 
 	    if($amt1 < 0)
 	    {
