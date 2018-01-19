@@ -66,7 +66,7 @@ sub split
 
     #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
     my $splitSell = new Sell($self->{date}, $otherShares, $otherPrice,
-			   $self->{symbol}, $self->{refs});
+			   $self->{symbol}, $self->{refs}, $self->{not_reported});
 
     $self->{shares} = $newShares;
     $self->{price} = $newPrice;
