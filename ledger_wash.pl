@@ -382,29 +382,26 @@ sub create_tax_items
 		      msg => "Positive inflow for a transfer (non income transaction)");
 	    }
 
-	    #co: forget the fees, it's pennies
-	    # if(!defined $base_val)
-	    # {
-	    # 	#I believe even the fee technically must be reported, because it is a service
-	    # 	#exchange used to transfer funds, but it's so tiny, that we allow it to be unreported
-	    # 	error(file=>$file, line=>$line, tran_text => $tran_text, type=>'WARN',
-	    # 	      msg => "Can't determine base val for $amt $curr fee. Marking as an unreported sell");
-	    # }
-
+	    #if there is any difference at all, thats a fee, and we ignore it. However
+	    #we still need to assign it a cost basis, so that we don't reuse the same
+	    #cost basis for the fees and the transactions themselves.
+	    #
+	    #We do this by creating an "unreported" transaction, that won't show up
+	    #on the report for the irs
 	    if($amt != 0 && $t->{curr} ne $base_curr)
 	    {
 		if($amt < 0)
 		{
 		    $tl->add("s", &main::convertTextToDays($date), -$amt, $ZERO,$t->{curr}, [$t],
 				      #!defined $base_val
-				      1
+				      1 #this indicates the transaction is ignored for reporting purposes
 			     ) ;
 		}
 		else
 		{
 		    $tl->add("b",&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
 				     #!defined $base_val
-				     1
+				     1 #this indicates the transaction is ignored for reporting purposes
 			     ) ;
 		}
 
