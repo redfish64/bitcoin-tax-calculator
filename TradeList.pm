@@ -54,9 +54,9 @@ sub insertAfter
 #adds a transaction to the tradelist. Actual transaction is returned.
 #
 # refs - References to the file and line number of the trade
-# not_reported - if set, transaction will not appear in final output for irs.
-#   not applicable for buys. Used for transfers to different accounts where a small amount is lost
-#   due to transaction fees.
+# report_type - Defined in Sell.pm. Depending the report type, the transaction
+#   will be reported either in the irs reports, the gift reports, or nowhere.
+#   Not applicable for buys. 
 # unique - if specified, then the trade cannot be merged with nearby trades.
 #   Otherwise, trades on the same day of the same type that appear consecutively will be
 #   merged (to prevent over long and complex returns)
@@ -67,7 +67,7 @@ sub insertAfter
 #the tran representing the combined result is returned.
 sub add
 {
-    my ($self, $type_b_or_s, $date, $shares, $price, $symbol, $refs, $is_reported, $unique) = @_;
+    my ($self, $type_b_or_s, $date, $shares, $price, $symbol, $refs, $report_type, $unique) = @_;
 
     my $trade;
 
@@ -77,7 +77,7 @@ sub add
     }
     elsif($type_b_or_s eq "s")
     {
-	$trade = new Sell($date,$shares,$price,$symbol,$refs,$is_reported);
+	$trade = new Sell($date,$shares,$price,$symbol,$refs,$report_type);
     }
     else {
 	die "Can't understand type: $type_b_or_s";
@@ -244,6 +244,9 @@ sub print
 }
 
 
+
+#prints out a set of trades in IRS format.
+#only sells are printed.
 sub printIRSForm
 {
     my ($self, $is_long, $trades) = @_;
@@ -263,8 +266,7 @@ sub printIRSForm
     {
 	my $symbol = $trade->{symbol};
 	
-	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long) &&
-	    !defined $trade->{not_reported})
+	if($trade->type eq "sell" && ($trade->isLongTerm() ? $is_long : !$is_long))
 	{
 	    $running_gain += $trade->getGain() || $main::ZERO;
 	    print getIRSRow($trade, $running_gain)."\n";
@@ -307,16 +309,23 @@ sub printIRSForm
     }
 }
 
-#prints out the list in the IRS format
+
+#prints out a list of trades in the IRS format
 sub printIRS
 {
-    my ($self, $trades) = @_;
+    my ($self, $trades, $report_type) = @_;
 
     if(!defined $trades)
     {
 	$trades = $self->{list};
     }
- 
+
+    $report_type = RT_NORMAL unless defined $report_type;
+
+    #limit to only trades for the specific report type
+    my @trades = grep { $_->type eq "sell" && $_->{report_type} eq $report_type } @$trades;
+    $trades = \@trades;
+
     printIRSForm($self,0, $trades);
     print "
 

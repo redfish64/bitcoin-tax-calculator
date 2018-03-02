@@ -29,7 +29,7 @@
 
 if(@ARGV == 0)
 {
-    print "Usage perl ledger_wash.pl -a <assets regexp> -i <income regexp> -e <expenses regexp> -bc <base currency (usually \$ or USD)> [-accuracy (decimal accuracy, defaults to 20 places)]  [-unr-date <unrealized cap gain date>] <dat file1> [dat file2...]
+    print "Usage perl ledger_wash.pl [-a <assets regexp>] [-i <income regexp>] [-e <expenses regexp>] [-g <gift regexp>] [-bc <base currency (usually \$ or USD)>] [-accuracy (decimal accuracy, defaults to 20 places)]  [-unr-date <unrealized cap gain date>] <dat file1> [dat file2...]
 
 Reads a ledger style file (see http://www.ledger-cli.org/) and creates a capital gains report using the FIFO method.
 
@@ -56,6 +56,8 @@ Expenses are accounts where expenses go. When expenses are one or more of the ou
    begins with Assets)
 <income regex> : Same as above, but for Income accounts (default '^Income')
 <expenses regex> : Same as above, but for Expenses accounts (default '^Expenses')
+<gift regex> : Regex for gifts. If there are transfers to a gift account, the cost basis is
+               shown in a separate report
 
 If an account matches two or more of the above, it will be considered an error.
 
@@ -89,15 +91,17 @@ use Getopt::Long;
 my ($assets_reg,
     $income_reg,
     $expenses_reg,
+    $gift_reg,
     $base_curr, 
     $accuracy,
     $unr_date,
     $unr_reg
-    ) = ('^Assets', '^Income', '^Expenses', '$', 20, undef, '^Assets');
+    ) = ('^Assets', '^Income', '^Expenses', '^Gift', '$', 20, undef, '^Assets');
 
 GetOptions ("assets=s" => \$assets_reg,    
 	    "income=s"   => \$income_reg,  
 	    "expenses=s"  => \$expenses_reg,
+	    "gift=s"  => \$gift_reg,
 	    "basecurr=s" => \$base_curr,
 	    "unr-date=s" => \$unr_date,
 	    "unr-reg=s" => \$unr_reg,
@@ -299,7 +303,17 @@ $tl->assignBuysToSells;
 
 #$tl->print;
 print "------------------------------------\n";
-$tl->printIRS;
+print "IRS Forms\n";
+print "------------------------------------\n";
+$tl->printIRS(undef, RT_NORMAL);
+print "\n------------------------------------\n";
+print "Gift Report\n";
+print "------------------------------------\n";
+$tl->printIRS(undef, RT_GIFT);
+
+print "\n------------------------------------\n";
+print "Other reports\n";
+print "------------------------------------\n";
 $tl->printRemainingBalances;
 print "------------------------------------\n";
 
@@ -374,7 +388,6 @@ sub create_tax_items
 	{
 	    my $amt = $t->{amt};
 	    my $curr = $t->{curr};
-	    my $base_val = figure_base_curr_price($amt, $curr, $date,$time,$index);
 
 	    if($amt > 0)
 	    {
@@ -382,30 +395,73 @@ sub create_tax_items
 		      msg => "Positive inflow for a transfer (non income transaction)");
 	    }
 
-	    #if there is any difference at all, thats a fee, and we ignore it. However
+	    #if a transfer and there is any difference at all, thats a fee, and we ignore it. However
 	    #we still need to assign it a cost basis, so that we don't reuse the same
 	    #cost basis for the fees and the transactions themselves.
 	    #
 	    #We do this by creating an "unreported" transaction, that won't show up
 	    #on the report for the irs
+	    
 	    if($amt != 0 && $t->{curr} ne $base_curr)
 	    {
 		if($amt < 0)
 		{
 		    $tl->add("s", &main::convertTextToDays($date), -$amt, $ZERO,$t->{curr}, [$t],
-				      #!defined $base_val
-				      1 #this indicates the transaction is ignored for reporting purposes
+			     RT_UNREPORTED) ;
+		}
+		else
+		{
+		    # if we gave negative units, or the transfer had a negative fee
+		    # it's treated as a regular buy (warning is shown to the user above)
+		    $tl->add("b",&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t]) ;
+		}
+
+	    }
+	}
+	elsif($t->{type} eq 'gift')
+	{
+	    my $samt = $t->{amt};
+	    my $ramt = $t->{received_amt};
+	    my $fee = $samt + $ramt; # samt is negative
+	    my $curr = $t->{curr};
+
+	    if($fee > 0)
+	    {
+		error(file=>$file, line=>$line, tran_text => $tran_text, type=>'WARN',
+		      msg => "Positive inflow for a gift (non income transaction)");
+	    }
+
+	    if($t->{curr} eq $base_curr)
+	    {
+		error(file=>$file, line=>$line, tran_text => $tran_text, type=>'ERROR',
+		      msg => "Gifts in base currency, $base_curr, not currently supported");
+	    }	
+
+	    #for gifts, we create two transactions. One is for the fee
+	    #and works just like a transfer
+	    #The other is a regular 'sell' transaction that is put on a special gift report
+
+	    #the fee transaction
+	    if($fee != 0)
+	    {
+		if($fee < 0)
+		{
+		    $tl->add("s", &main::convertTextToDays($date), -$fee, $ZERO,$t->{curr}, [$t],
+			     RT_UNREPORTED 
 			     ) ;
 		}
 		else
 		{
-		    $tl->add("b",&main::convertTextToDays($date), $amt, $ZERO,$t->{curr}, [$t],
-				     #!defined $base_val
-				     1 #this indicates the transaction is ignored for reporting purposes
+		    # if we gave negative units, or the transfer had a negative fee
+		    # it's treated as a regular buy (warning is shown to the user above)
+		    $tl->add("b",&main::convertTextToDays($date), $fee, $ZERO,$t->{curr}, [$t],
 			     ) ;
 		}
-
 	    }
+
+	    #the txn to appear on the gift report
+	    $tl->add("s", &main::convertTextToDays($date), $ramt, $ZERO,$t->{curr}, [$t],
+		     RT_GIFT) ;
 	}
 	elsif($t->{type} eq 'trade')
 	{
@@ -420,7 +476,8 @@ sub create_tax_items
 	    }
 	    if($sell_amt != 0 && $sell_curr ne $base_curr)
 	    {
-		$tl->add("s",&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t]);
+		$tl->add("s",&main::convertTextToDays($date), $sell_amt, $sell_base_val,$sell_curr, [$t],
+		    RT_NORMAL);
 	    }
 	}
 	elsif($t->{type} eq 'income')
@@ -451,7 +508,7 @@ sub create_tax_items
 	    my $income_buy = $tl->add("b",&main::convertTextToDays($date),$amt,$ZERO,$curr, [$t],undef,1);
 
 	    #sell it at market price to report the gains
-	    my $income_sell = $tl->add("s",&main::convertTextToDays($date), $amt, $base_val,$curr, [$t],undef,1);
+	    my $income_sell = $tl->add("s",&main::convertTextToDays($date), $amt, $base_val,$curr, [$t],RT_NORMAL,1);
 
 	    #join the buy and sell ahead of time, so the income line cost basis will always be
 	    #zero. Otherwise it will use its standard matching algorithm, which means that the buy 
@@ -608,7 +665,7 @@ sub add_tran
 
     @account_lines = balance_account_lines($file, $line, $tran_text, @account_lines);
 
-    my ($asset_ag, $income_ag, $expense_ag) = 
+    my ($asset_ag, $income_ag, $expense_ag, $gift_ag) = 
 	create_account_groups(
 	    sub { my $msg = shift;
 		  my $type = shift;
@@ -617,7 +674,9 @@ sub add_tran
 	    \@account_lines, 
 	    sub { /${assets_reg}/ }, 
 	    sub { /${income_reg}/ },
-	    sub { /${expenses_reg}/ });
+	    sub { /${expenses_reg}/ },
+	    sub { /${gift_reg}/ }
+	);
 
     #if income transaction
     if(ag_currs($income_ag) != 0)
@@ -649,22 +708,48 @@ sub add_tran
     }
     elsif(($_ = ag_currs($asset_ag)) != 0)
     {
-	if($_ == 1) #transfer
+	if($_ == 1) #if a gift or a transfer
 	{
 	    my ($acurr,$aamt) =  ag_get_curr_amt($asset_ag);
 	    
-	    #ignored for tax, but we need it for our balancing report, and to make sure
-	    #we don't claim a basis for funds that we don't have anymore
+	    my ($rcurr,$ramt);
+
+	    if (ag_currs($gift_ag) != 0) {
+		$type = 'gift';
+
+		#if a gift, then there might be expenses.
+		#So the amount received by the receipient may differ from
+		#the amount given.
+		#So we find the amount received here
+		($rcurr,$ramt) =  ag_get_curr_amt($gift_ag);
+
+		if($rcurr ne $acurr)
+		{
+		    error(file => $file, line => $line, tran_text => $tran_text, msg => "The currency of the received amount of a gift ($rcurr) must equal the currency of the sent amount ($acurr)");
+		}
+	    }
+	    else
+	    {
+		$type = 'transfer';
+	    }
+	    
+	    #transfers are ignored for tax, but we need it for our balancing report, and to make sure
+	    #we don't claim a basis for funds that we don't have anymore, due to fees
+
+	    #gifts are also not included in the irs report. The cost basis from them has to be eliminated,
+	    #also, however
 	    push @trades, { 
 		file => $file,
 		line => $line,
 		tran_text => [@$tran_text],
-		type => 'transfer',
+		type => $type,
 		date => $date,
 		time => $time,
 		index => $index,
 		amt => $aamt,
-		curr => $acurr};
+		curr => $acurr,
+		received_amt => $ramt
+	    };
 	}
 	elsif($_ == 2) # two currencies mean a trade
 #TODO 2: This is not always true! See the LSK transaction in test.dat (right now generates an error)
@@ -981,11 +1066,7 @@ sub print_reports
 	}
 	else {
 	    $curr_to_balance{$t->{curr}} = $ZERO unless defined $curr_to_balance{$t->{curr}};
-	    if($t->{type} eq 'transfer')
-	    {
-		$curr_to_balance{$t->{curr}} += $t->{amt};
-	    }
-	    elsif($t->{type} eq 'income')
+	    if($t->{type} eq 'transfer' || $t->{type} eq 'gift' || $t->{type} eq 'income')
 	    {
 		$curr_to_balance{$t->{curr}} += $t->{amt};
 	    }

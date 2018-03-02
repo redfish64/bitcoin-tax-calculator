@@ -30,14 +30,26 @@ use Trade;
 
 @ISA = qw(Trade);
 
+#indicates where the sell should be reported
+use constant {
+    RT_NORMAL   => 'RT_NORMAL', #this will show it in the irs reports
+    RT_GIFT   => 'RT_GIFT', #this will show it in the gift reports
+    RT_UNREPORTED   => 'RT_UNREPORTED' # this will show it nowhere (used for internal transfer fees)
+};
+
 sub new
 {
-    #not_reported - if set, won't appear on irs sells
-    my ($class, $date, $shares, $price, $symbol, $refs, $not_reported) = @_;
+    #report_type - 
+    my ($class, $date, $shares, $price, $symbol, $refs, $report_type) = @_;
     
     $self = Trade::new($class, $date, $shares, $price, $symbol, $refs);
 
-    $self->{not_reported} = $not_reported;
+    $self->{report_type} = $report_type;
+
+    #if($report_type eq RT_GIFT) { print STDERR "DEBUG: IS RT_GIFT!\n"; }
+
+    die unless defined $report_type;
+    
     $self->init();
 
     $self;
@@ -66,7 +78,7 @@ sub split
 
     #create a new buy split off from this one. No charge for this buy, and give it the shares not allocated
     my $splitSell = new Sell($self->{date}, $otherShares, $otherPrice,
-			   $self->{symbol}, $self->{refs}, $self->{not_reported});
+			   $self->{symbol}, $self->{refs}, $self->{report_type});
 
     $self->{shares} = $newShares;
     $self->{price} = $newPrice;

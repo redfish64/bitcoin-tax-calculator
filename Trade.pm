@@ -58,18 +58,15 @@ sub combine
 #    print STDERR "Trying to combine $self->{symbol}, $other->{symbol}, ".$self->type.", ".$other->type."\n";
     if ($self->{date} != $other->{date} || $self->{symbol} ne $other->{symbol} || $self->type ne $other->type 
 	|| (defined $self->{buy}) || (defined $self->{sell}) 
-	|| (defined $other->{buy}) || (defined $other->{sell}) 
-	)
+	|| (defined $other->{buy}) || (defined $other->{sell})
+	|| ($self->type eq 'sell' && $self->{report_type} ne $other->{report_type})
+	) 
     {
 	return 0; #unable to combine
     }
 
     $self->{shares} += $other->{shares};
     $self->{price} += $other->{price};
-    if(defined $self->{not_reported})
-    {
-	$self->{not_reported} = $other->{not_reported};
-    }
 
     push @{$self->{refs}}, @{$other->{refs}};
 
