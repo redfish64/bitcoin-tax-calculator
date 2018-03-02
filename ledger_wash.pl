@@ -55,7 +55,7 @@ Expenses are accounts where expenses go. When expenses are one or more of the ou
 <assets regex> : Regex for when an account should be included in Assets (default '^Assets' which means 
    begins with Assets)
 <income regex> : Same as above, but for Income accounts (default '^Income')
-<expenses regex> : Same as above, but for Expenses accounts (default '^Expesnses')
+<expenses regex> : Same as above, but for Expenses accounts (default '^Expenses')
 
 If an account matches two or more of the above, it will be considered an error.
 
@@ -356,7 +356,7 @@ sub sort_trades
     @trades = sort compare_date_time_index @trades;
 }
 
-
+#this creates taxable events from the list of trades
 sub create_tax_items
 {
 
@@ -614,7 +614,9 @@ sub add_tran
     my ($asset_ag, $income_ag, $expense_ag) = 
 	create_account_groups(
 	    sub { my $msg = shift;
-		  errorfile => $file, line => $line, tran_text => $tran_text, msg => $msg },
+		  my $type = shift;
+		  error(file => $file, line => $line, tran_text => $tran_text, msg => $msg, type => $type);
+	    },
 	    \@account_lines, 
 	    sub { /${assets_reg}/ }, 
 	    sub { /${income_reg}/ },
@@ -1042,7 +1044,7 @@ sub create_account_groups
 	    if($subs[$i]->())
 	    {
 		!$found_sub_already or
-		    $error_sub->("Account appears in more than one category, $a->{acct}");
+		    $error_sub->("Account appears in more than one category, $a->{acct}","ERROR");
 		$found_sub_already = 1;
 
 		my ($amt,$curr) = ($a->{amt},$a->{curr});
@@ -1053,7 +1055,11 @@ sub create_account_groups
 
 		$curr_to_amt->{$curr} += $amt;
 	    }
-	}	
+	}
+	if(!(defined $found_sub_already))
+	{
+	    $error_sub->("Account doesn't appear in any category, $a->{acct}","ERROR");
+	}
     }
     
     return @res_ag;

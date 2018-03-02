@@ -178,18 +178,18 @@ sub assignBuysToSells
 		#if buy is the same symbol as sell and hasn't already been allocated as a buy for another sell
 		if($buy->type eq "buy" && $buy->{symbol} eq $sell->{symbol} && !(defined $buy->{sell}))
 		{
-		    print STDERR "Found buy ".$buy->toString."\n";
+		    #print STDERR "Found buy ".$buy->toString."\n";
 		    verify_buy_sell_chain($buy);
 		    verify_buy_sell_chain($sell);
 			
 		    if($buy->{shares} > $sell->{shares})
 		    {
-			print STDERR "Split buy\n";
+			#print STDERR "Split buy\n";
 			$buy->split($self, $sell->{shares});
 		    }
 		    elsif($sell->{shares} > $buy->{shares})
 		    {
-			print STDERR "Split sell\n";
+			#print STDERR "Split sell\n";
 			$sell->split($self, $buy->{shares});
 		    }
 

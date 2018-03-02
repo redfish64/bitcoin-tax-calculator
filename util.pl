@@ -149,7 +149,11 @@ sub bigrat
 
 sub format_amt
 {
-    return sprintf("%12.6f",shift->as_float());
+    my ($v, $acc) = @_;
+    $acc = 12 unless defined $acc;
+    
+    #as_float() returns a float that has $acc digits (not a regular c float)
+    return sprintf("%12.${acc}f",$v->as_float($acc));
 }
 
 1;
