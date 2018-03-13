@@ -345,16 +345,13 @@ if($unr_date)
 
 	if(!defined $sell_price)
 	{
-	    die "Couldn't figure sell price for ".$buy->{symbol}." on $unr_date";
+	    error(file=>"<none>", line=>1, tran_text =>"Unreliazed Gain Report", type=>'WARN',
+		  msg => "Couldn't figure sell price for ".$buy->{symbol}." on $unr_date, won't include in unrealized gain report");
+	    next;
 	}
 
-	my $sell = new Sell($d, $buy->{shares}, $sell_price, $buy->{symbol}, []);
-
+	my $sell = $tl->add("s",$d,$buy->{shares},$sell_price,$buy->{symbol},[],RT_NORMAL,1);
 	push @sells, $sell;
-
-	#TODO a big hack here. We aren't calling $tl->add because that would
-	#possibly combine the sell, and we don't want that
-	push @{$tl->{list}}, $sell;
 
 	$buy->markBuyForSell($sell);
     }
